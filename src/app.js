@@ -76,8 +76,10 @@ function createApp({ db, env = process.env }) {
   app.use(express.static(PUBLIC_DIR, { maxAge: isProd ? "1h" : 0, extensions: ["html"] }));
 
   app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
-  const notFoundHtml = fs.readFileSync(path.join(PUBLIC_DIR, "404.html"), "utf8");
-  app.use((req, res) => res.status(404).type("html").send(notFoundHtml));
+  // public/ lives on the CDN in Vercel (not inside the function), so send a tiny page that hops to /404
+  app.use((req, res) =>
+    res.status(404).type("html").send(`<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/404"><title>Dish not found</title><a href="/404">Dish not found 💀</a>`),
+  );
 
   app.use((err, req, res, next) => {
     const status = err.status || err.statusCode || 500;

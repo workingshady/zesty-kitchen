@@ -94,6 +94,7 @@ test("admin page only exists at the secret path", async () => {
   assert.equal((await request(app).get("/secret-kitchen")).status, 200);
   assert.equal((await request(app).get("/admin")).status, 404);
   assert.equal((await request(app).get("/admin.html")).status, 404);
+  assert.equal((await request(app).get("/nope")).status, 404);
 });
 
 test("admin photo upload rejects non-images", async () => {
