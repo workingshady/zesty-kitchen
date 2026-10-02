@@ -32,6 +32,7 @@ body {
   font-size: 16px;
   line-height: 1.5;
   overflow-x: hidden;
+  overflow-x: clip;
 }
 img { max-width: 100%; display: block; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -168,17 +169,12 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 400; line-height: 1.
 .board__panel { background: var(--paper); border: var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
 .board__panel.worst { background: #1e1e1e; color: #fff; }
 .board__panel.worst .avatar { border-color: #fff; }
-.board ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.board li { display: grid; grid-template-columns: 2.4ch 48px 1fr auto; align-items: center; gap: 4px 10px; }
-.board .rank { font-family: var(--font-display); font-size: 1.6rem; text-align: center; }
+.board ol { list-style: none; margin: 0; padding: 0; }
 .avatar { width: 48px; height: 48px; border-radius: 10px; border: 2px solid var(--ink); object-fit: cover; background: var(--cream); display: grid; place-items: center; flex: none; font-size: 1.4rem; overflow: hidden; }
 .bar { grid-column: 3 / 5; height: 12px; border: 2px solid var(--ink); border-radius: 999px; background: var(--cream); overflow: hidden; }
 .bar span { display: block; height: 100%; background: repeating-linear-gradient(45deg, var(--hot) 0 8px, var(--mustard) 8px 16px); }
-.board .count { font-family: var(--font-ui); font-weight: 800; white-space: nowrap; }
 .board__empty { text-align: center; padding: 14px 6px; display: grid; gap: 10px; justify-items: center; }
 .board__stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-.worst__face { display: grid; justify-items: center; gap: 8px; text-align: center; }
-.worst__face .avatar { width: 110px; height: 110px; filter: grayscale(1); transform: rotate(-6deg); }
 @media (max-width: 760px) { .board { grid-template-columns: 1fr; } }
 
 /* ---------- Generic modal ---------- */
@@ -291,12 +287,13 @@ dialog.modal::backdrop { background: rgba(17, 17, 17, .6); }
 .shake { animation: shake .45s; }
 @keyframes shake { 20%, 60% { transform: translateX(-10px) rotate(-1deg); } 40%, 80% { transform: translateX(10px) rotate(1deg); } }
 .fx-layer { position: fixed; inset: 0; pointer-events: none; z-index: 80; overflow: hidden; }
-.trail { position: fixed; pointer-events: none; font-size: 18px; z-index: 81; animation: trail .9s forwards; }
-@keyframes trail { to { transform: translateY(30px) rotate(90deg); opacity: 0; } }
-.rain { position: absolute; top: -80px; font-size: 48px; animation: fall linear forwards; }
+/* Effects animate transform/opacity only (compositor), positioned via CSS vars, no layout per frame */
+.trail { position: fixed; top: 0; left: 0; pointer-events: none; font-size: 18px; line-height: 1; z-index: 81; will-change: transform, opacity; contain: layout style; transform: translate3d(var(--x, 0), var(--y, 0), 0); animation: trail .9s ease-out forwards; }
+@keyframes trail { to { transform: translate3d(var(--x, 0), calc(var(--y, 0px) + 30px), 0) rotate(90deg); opacity: 0; } }
+.rain { position: absolute; top: -80px; left: 0; font-size: 48px; line-height: 1; will-change: transform; contain: layout style; transform: translate3d(var(--x, 0), 0, 0); animation: fall linear forwards; }
 .rain img { width: 64px; height: 64px; border-radius: 12px; border: 2px solid var(--ink); object-fit: cover; }
-@keyframes fall { to { transform: translateY(calc(100vh + 160px)) rotate(540deg); } }
-.dvd { position: fixed; z-index: 70; width: 90px; height: 90px; border-radius: 14px; border: var(--border); display: grid; place-items: center; font-size: 3rem; overflow: hidden; pointer-events: none; background: var(--mustard); top: 0; left: 0; }
+@keyframes fall { to { transform: translate3d(var(--x, 0), calc(100vh + 160px), 0) rotate(540deg); } }
+.dvd { position: fixed; z-index: 70; width: 90px; height: 90px; border-radius: 14px; border: var(--border); display: grid; place-items: center; font-size: 3rem; overflow: hidden; pointer-events: none; background: var(--mustard); top: 0; left: 0; will-change: transform; contain: layout paint; transition: background-color .2s; }
 .dvd img { width: 100%; height: 100%; object-fit: cover; }
 .unc { display: none; }
 .unc-on body { font-family: "Comic Sans MS", "Comic Sans", cursive !important; }
@@ -383,19 +380,10 @@ footer { padding: 30px 0 90px; text-align: center; color: var(--muted); font-siz
 }
 
 /* ---------- Polish ---------- */
-.board li.board__empty { grid-template-columns: 1fr; }
 .totals span:last-child { white-space: nowrap; }
 .summary .totals { font-size: .85rem; }
 
-/* ---------- Hero champion (most ordered) ---------- */
-.champ { display: grid; gap: 6px; width: 100%; padding: 0; border: 0; background: none; text-align: center; cursor: pointer; }
-.champ__photo { position: relative; display: block; width: min(100%, 300px); aspect-ratio: 1 / 1; margin: 6px auto 0; border: var(--border); border-radius: 14px; overflow: hidden; background: var(--cream); box-shadow: var(--shadow); transform: rotate(-2deg); transition: transform .2s; }
-.champ:hover .champ__photo { transform: rotate(1deg) scale(1.03); }
-.champ__photo img { width: 100%; height: 100%; object-fit: cover; object-position: center 30%; }
-.champ__crown { position: absolute; top: -6px; left: 50%; transform: translateX(-50%) rotate(-12deg); font-size: 3rem; filter: drop-shadow(2px 2px 0 var(--ink)); animation: bob 1.2s ease-in-out infinite alternate; }
-.champ__count { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%) rotate(-3deg); padding: .15em .8em; border: 2px solid var(--ink); border-radius: 999px; background: var(--mustard); font-family: var(--font-ui); font-weight: 800; white-space: nowrap; box-shadow: 2px 2px 0 var(--ink); }
-.champ__name { font-family: var(--font-display); font-size: 1.8rem; line-height: 1.1; margin-top: 8px; }
-.champ__sub { font-family: var(--font-ui); font-size: .9rem; }
+/* Hero champion, leaderboard, side quests, wheel, photo toys: see home.css */
 
 /* ---------- Adaptive photos ---------- */
 .fit { position: absolute; inset: 0; display: block; overflow: hidden; }

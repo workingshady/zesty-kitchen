@@ -10,6 +10,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@400;700;800&family=Cairo:wght@400;700&family=Lalezar&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/sounds.css">
+  <link rel="stylesheet" href="/css/home.css">
 </head>
 <body>
   <div class="marquee" aria-hidden="true"><div class="marquee__track" id="marquee"></div></div>
@@ -39,15 +41,17 @@
           <a class="btn big red" href="#menu-top">Order now / اطلب دلوقتي</a>
           <button class="btn big pink" type="button" id="open-wheel">🎡 دوّر وكُل / Spin</button>
         </div>
+        <div class="hero__chips" id="hero-chips"></div>
       </div>
-      <div class="hero__card">
-        <h3>🏆 Most ordered right now</h3>
-        <div id="hero-top">Loading the drama…</div>
+      <div class="hero__card" aria-labelledby="hero-top-title">
+        <h3 id="hero-top-title">🏆 Most ordered right now</h3>
+        <div id="hero-top" aria-live="polite">Loading the drama…</div>
       </div>
     </section>
 
     <div class="offer">🔥 <span><strong>عرض النهاردة / Today's offer:</strong> Order 2 coworkers, get the 3rd one's attitude for free. Terms: there are no terms. كوبون: <b>فكّك</b></span></div>
 
+    <div class="menu-zone">
     <nav class="cats" aria-label="Menu filters" id="menu-top">
       <div class="cats__scroll" id="cat-tabs"></div>
       <div class="toolbar">
@@ -65,12 +69,32 @@
 
     <div class="cat-intro" id="cat-intro"></div>
     <div class="grid" id="menu"></div>
+    </div>
+
+    <section class="section" id="side-quests" aria-labelledby="quests-title">
+      <div class="section__head"><h2 id="quests-title">🎮 Side quests / مهام جانبية</h2><span class="section__twist">Daily content. Your manager can't stop you.</span></div>
+      <div class="quests">
+        <article class="quest quest--potd" id="potd-section" aria-label="Coworker of the day"></article>
+        <article class="quest quest--duel" id="duel" aria-label="Would you rather eat"></article>
+      </div>
+    </section>
 
     <section class="section" id="leaderboard" aria-labelledby="board-title">
       <div class="section__head"><h2 id="board-title">🏆 Leaderboard / الأكثر طلبًا</h2><span class="section__twist">W orders only. L's get roasted.</span></div>
+      <div class="lb-controls">
+        <div class="lb-tabs" id="lb-tabs" role="tablist" aria-label="Leaderboard range">
+          <button type="button" role="tab" data-tab="all" aria-controls="lb-main">🏆 All time</button>
+          <button type="button" role="tab" data-tab="vibes" aria-controls="lb-main">🔮 Vibes today</button>
+          <button type="button" role="tab" data-tab="cat" aria-controls="lb-main">🗂️ By category</button>
+        </div>
+        <div class="lb-mode" id="lb-mode" role="group" aria-label="View">
+          <button type="button" data-mode="rank">📊 Ranking</button>
+          <button type="button" data-mode="tier">🧩 Tier list</button>
+        </div>
+      </div>
       <div class="board">
-        <div class="board__panel"><div class="board__stats" id="board-stats"></div><ol id="board-top"></ol></div>
-        <div class="board__panel worst"><h3>💀 Worst seller / الأقل طلبًا</h3><div id="board-worst"></div></div>
+        <div class="board__panel lb-main" id="lb-main" role="tabpanel" aria-live="polite"></div>
+        <div class="board__panel worst" id="board-worst"></div>
       </div>
     </section>
   </main>
@@ -79,7 +103,14 @@
     <div>Zesty Kitchen™ — no coworkers were harmed. Probably.</div>
     <section class="soundboard-wrap" aria-labelledby="sb-title">
       <h2 id="sb-title">🔊 لوحة الأصوات / Soundboard</h2>
-      <p>Press to annoy the person next to you. Turn sound on/off with the 🔊 button.</p>
+      <p>Press to annoy the person next to you. Keys <kbd>1</kbd>–<kbd>9</kbd> fire the first nine, <kbd>Esc</kbd> shuts everyone up. Turn sound on/off with the 🔊 button.</p>
+      <div class="sb-toolbar">
+        <input class="sb-search" id="sb-search" type="search" placeholder="🔎 Search… bruh, pipe, habibi" aria-label="Search sounds" autocomplete="off">
+        <button class="btn sb-random" type="button" id="sb-random">🎲 Random</button>
+        <button class="btn red sb-stop" type="button" id="sb-stop">⏹️ Stop all</button>
+      </div>
+      <div class="sb-tabs" id="sb-tabs" role="tablist" aria-label="Sound categories"></div>
+      <div class="sb-now" id="sb-now" aria-live="polite">🎧 Nothing playing. Peace. For now.</div>
       <div class="soundboard" id="soundboard"></div>
       <button class="btn pink" type="button" id="unc-btn">👴 Unc mode</button>
     </section>
@@ -107,13 +138,18 @@
   <!-- Spin wheel modal -->
   <dialog class="modal small" id="wheel-modal" aria-labelledby="wheel-title">
     <button class="btn white icon-btn modal__close" id="close-wheel" type="button" aria-label="Close">✕</button>
-    <div class="modal__body center">
+    <div class="modal__scroll"><div class="modal__body center wheel-body">
       <h2 id="wheel-title">🎡 دوّر وكُل / Spin & Eat</h2>
-      <p>Can't decide who to eat? Let fate (and HR) decide.</p>
-      <div class="wheel-wrap"><span class="wheel-pointer" aria-hidden="true">🔻</span><canvas id="wheel" width="600" height="600" aria-label="Wheel of coworkers"></canvas></div>
-      <p id="wheel-result" aria-live="polite" style="min-height:1.5em;font-weight:700"></p>
+      <div class="wheel-wrap">
+        <span class="wheel-pointer" id="wheel-pointer" aria-hidden="true"><svg viewBox="0 0 40 50" width="40" height="50"><path d="M5 5h30L20 45z" fill="#ff3b30" stroke="#111" stroke-width="4" stroke-linejoin="round"/></svg></span>
+        <canvas id="wheel" width="600" height="600" role="img" aria-label="Wheel of coworkers"></canvas>
+        <span class="wheel-hub" aria-hidden="true">🍋</span>
+      </div>
+      <p class="wheel-status" id="wheel-status" aria-live="polite"></p>
+      <div class="wheel-result" id="wheel-result" aria-live="polite" hidden></div>
       <button class="btn big red" type="button" id="spin">Spin / دوّر 🎰</button>
-    </div>
+      <small class="wheel-pool" id="wheel-pool"></small>
+    </div></div>
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/rough-notation@0.5.1/lib/rough-notation.iife.js" defer></script>

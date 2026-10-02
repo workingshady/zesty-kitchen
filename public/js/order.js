@@ -574,7 +574,7 @@ const DETOURS = {
     setChip("🔄 recalculating…");
     setStatus("Rerouting. The GPS said turn left. There is no left.");
     mapSay("🔄 Recalculating route. He's doing a full lap of the corridor. لفة كاملة.");
-    play("goofy");
+    play("run");
     try {
       await wait(900);
       const lap = [[x, 150]];
@@ -597,7 +597,7 @@ const DETOURS = {
     mapState.lostFor = 0;
     M.courier.classList.add("is-glitch");
     flash("⚠️ GPS glitch · courier.exe stopped responding", "glitch");
-    play("boom");
+    play("error");
     setChip("👻 teleported?? lag");
     setStatus("The courier teleported. Our engineers are calling it a feature.");
     mapSay("⚠️ GPS glitch: the courier teleported across the office. Then came back. Nobody saw anything.");
@@ -685,7 +685,7 @@ function chatMsg(html, who = "them", { sound = true } = {}) {
   m.innerHTML = `<div class="ot-msg__bubble" dir="auto">${html}</div><span class="ot-msg__time">${clock()}${who === "me" ? " ✓✓" : ""}</span>`;
   log.append(m);
   log.scrollTop = log.scrollHeight;
-  if (who === "them" && sound) play("pop");
+  if (who === "them" && sound) play("notify");
   return m;
 }
 function voiceNote(text, secs = 7) {
@@ -973,7 +973,7 @@ function deliver({ quiet = false } = {}) {
   const done = $("#done");
   done.hidden = false;
   if (!quiet) {
-    play("ka");
+    play("celebrate");
     done.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }

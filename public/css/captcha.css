@@ -57,11 +57,43 @@
 .cap-plate__food { font-size: 2.2rem; bottom: 18px; transition: left .05s; }
 #cap-range { margin: 0; }
 
+
+/* grids: 4x4 crowd, 2x2 upside-down photos */
+.cap .captcha-grid.cap-grid4 { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.cap .captcha-grid.cap-grid4 button { font-size: 1.9rem; border-width: 2px; border-radius: 10px; }
+.cap .captcha-grid.cap-grid2 { grid-template-columns: repeat(2, 1fr); max-width: 340px; }
+.cap .captcha-grid button img { pointer-events: none; }
+
+/* rotate the photo upright */
+.cap-rotate { display: grid; justify-items: center; gap: 10px; }
+.cap-rotate__pic { width: min(200px, 60vw); aspect-ratio: 1; padding: 0; border: var(--border); border-radius: 14px; background: var(--cream); overflow: hidden; cursor: pointer; box-shadow: var(--shadow-sm); }
+.cap-rotate__inner { display: grid; place-items: center; width: 100%; height: 100%; transition: transform .3s cubic-bezier(.3, 1.4, .5, 1); }
+.cap-rotate__inner img { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.cap-rotate__emoji { font-size: 6rem; line-height: 1; }
+
+/* drag the face onto the plate */
+.cap-drag { position: relative; height: 210px; border: 2px dashed var(--ink); border-radius: 12px; background: repeating-linear-gradient(90deg, #fff6e6 0 24px, #ffecc7 24px 48px); overflow: hidden; touch-action: none; }
+.cap-drag__plate, .cap-drag__face { position: absolute; transform: translate(-50%, -50%); }
+.cap-drag__plate { font-size: 4.4rem; line-height: 1; pointer-events: none; }
+.cap-drag__face { width: 64px; height: 64px; padding: 0; display: grid; place-items: center; border: var(--border); border-radius: 50%; background: var(--mustard); font-size: 2rem; overflow: hidden; cursor: grab; touch-action: none; box-shadow: var(--shadow-sm); z-index: 1; }
+.cap-drag__face img { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.cap-drag__face.is-drag { cursor: grabbing; transform: translate(-50%, -50%) scale(1.12) rotate(-6deg); }
+.cap-drag__face.is-on { border-color: #1b7a00; box-shadow: 0 0 0 4px var(--slime); }
+
+/* leaked price list */
+.cap-receipt { list-style: none; margin: 0; padding: 10px 14px; border: 2px dashed var(--ink); border-radius: 6px; background: #fffdf6; font-family: "Courier New", monospace; display: grid; gap: 4px; }
+.cap-receipt li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dotted var(--muted); }
+.cap-receipt li span { overflow-wrap: anywhere; }
+.cap-receipt b { white-space: nowrap; }
+#cap-skip { justify-self: center; }
+
 @media (max-width: 420px) {
   .cap-robot { --robot-w: 190px; }
   .cap .captcha-grid { gap: 6px; }
   .cap .captcha-grid button { font-size: 2rem; }
+  .cap .captcha-grid.cap-grid4 button { font-size: 1.5rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cap-robot__box, .cap-plate__food { transition: none; }
+  .cap-robot__box, .cap-plate__food, .cap-rotate__inner { transition: none; }
 }
+.cap__prompt .cap-ar { display: inline-block; font-family: var(--font-ui); font-weight: 700; color: var(--muted); }

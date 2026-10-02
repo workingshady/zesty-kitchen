@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@400;700;800&family=Cairo:wght@400;700&family=Lalezar&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/captcha.css">
+  <link rel="stylesheet" href="/css/checkout.css">
 </head>
 <body>
   <header class="header">
@@ -19,19 +20,24 @@
     </div>
   </header>
 
-  <main class="wrap">
-    <h1 style="margin-top:20px"><span class="wordart">Checkout</span> / الدفع</h1>
-    <ol class="steps" id="steps" aria-label="Checkout progress"></ol>
+  <main class="wrap co-main">
+    <h1 class="co-title"><span class="wordart">Checkout</span> / الدفع</h1>
+    <nav class="co-progress" aria-label="Checkout progress">
+      <ol class="steps co-steps" id="steps"></ol>
+      <p class="co-step-now" id="step-now"></p>
+    </nav>
+    <p class="cap-sr" id="live" aria-live="polite"></p>
     <div class="checkout">
       <div id="step"></div>
-      <aside class="panel summary" aria-label="Order summary">
-        <h2 style="font-size:1.4rem">🧾 طلبك / Your order</h2>
-        <div id="summary"></div>
+      <aside class="panel summary co-summary" aria-label="Order summary">
+        <details id="sum-details">
+          <summary><span id="sum-head">🧾 طلبك / Your order</span><span class="co-summary__chev" aria-hidden="true">▾</span></summary>
+          <div id="summary"></div>
+        </details>
       </aside>
     </div>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/js-confetti@0.12.0/dist/js-confetti.browser.js" defer></script>
   <script src="/js/checkout.js" type="module"></script>
 </body>
 </html>

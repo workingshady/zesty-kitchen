@@ -1,0 +1,74 @@
+/* ---------- Soundboard (footer) — owned by the sound system. Overrides the old rules in style.css ---------- */
+.soundboard-wrap { width: 100%; max-width: 1180px; padding: 0 16px; display: grid; gap: 12px; justify-items: stretch; color: var(--ink); text-align: center; }
+.soundboard-wrap h2 { font-size: 1.8rem; margin: 0; }
+.soundboard-wrap p { margin: 0; }
+.soundboard-wrap kbd { font: 700 .8em/1 var(--font-ui, system-ui); background: var(--paper); border: 2px solid var(--ink); border-bottom-width: 3px; border-radius: 6px; padding: 1px 5px; }
+.soundboard-wrap > #unc-btn { justify-self: center; }
+
+/* toolbar: search + random + stop */
+.sb-toolbar { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.sb-search { flex: 1 1 260px; max-width: 460px; min-height: 48px; padding: 0 14px; font: inherit; font-size: 1rem; color: var(--ink); background: var(--paper); border: var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+.sb-search:focus-visible { outline: 3px solid var(--hot); outline-offset: 2px; }
+.sb-random { background: var(--mustard); }
+.sb-toolbar .btn { min-height: 48px; }
+
+/* category tabs */
+.sb-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px; scrollbar-width: thin; justify-content: safe center; }
+.sb-tab { flex: none; min-height: 40px; padding: 0 12px; font: 700 .9rem var(--font-ui, system-ui); color: var(--ink); background: var(--paper); border: 2px solid var(--ink); border-radius: 999px; cursor: pointer; white-space: nowrap; transition: transform .1s; }
+.sb-tab:hover { transform: translateY(-1px); }
+.sb-tab[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+.sb-count { display: inline-block; min-width: 1.6em; margin-inline-start: 4px; padding: 0 5px; font-size: .75rem; border-radius: 999px; background: var(--mustard); color: var(--ink); }
+
+/* now playing strip */
+.sb-now { min-height: 36px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 4px 12px; font-size: .9rem; color: var(--muted); border: 2px dashed var(--muted); border-radius: var(--radius); overflow: hidden; text-overflow: ellipsis; }
+.sb-now.on { color: var(--ink); border-style: solid; border-color: var(--ink); background: var(--pickle); }
+
+/* the grid */
+.soundboard { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; width: 100%; }
+.sb-btn {
+  position: relative; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px;
+  min-height: 60px; padding: 8px 12px; text-align: start; cursor: pointer;
+  font: 700 .92rem/1.15 var(--font-ui, system-ui); color: var(--ink);
+  background: var(--paper); border: var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  transition: transform .08s, box-shadow .08s; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.sb-btn:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--ink); }
+.sb-btn:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+.sb-btn:focus-visible { outline: 3px solid var(--hot); outline-offset: 2px; }
+.sb-emoji { font-size: 1.5rem; line-height: 1; }
+.sb-label { overflow-wrap: anywhere; }
+.soundboard .sb-key { position: absolute; top: -10px; inset-inline-end: -6px; min-width: 20px; font: 800 .75rem/1 system-ui, sans-serif; text-align: center; background: var(--ink); color: var(--mustard); border: 2px solid var(--paper); border-radius: 6px; padding: 3px 5px; }
+.sb-reactions { background: var(--sky); }
+.sb-fails { background: #ff8a80; }
+.sb-wins { background: var(--slime); }
+.sb-money { background: var(--mustard); }
+.sb-egyptian { background: linear-gradient(135deg, #ffd166, #f4a261); }
+.sb-sfx { background: var(--paper); }
+.sb-chaos { background: var(--pink); }
+.sb-empty { grid-column: 1 / -1; padding: 20px; font-weight: 700; }
+
+/* animated equalizer: hidden until the button's clip is playing */
+.sb-eq { display: none; position: absolute; inset-inline-end: 8px; bottom: 7px; height: 14px; gap: 2px; align-items: flex-end; }
+.sb-eq i { width: 3px; height: 100%; background: var(--ink); border-radius: 2px; transform-origin: bottom; animation: sb-eq .7s ease-in-out infinite; }
+.sb-eq i:nth-child(2) { animation-delay: -.2s; } .sb-eq i:nth-child(3) { animation-delay: -.45s; } .sb-eq i:nth-child(4) { animation-delay: -.1s; }
+.sb-eq.on, .sb-btn.playing .sb-eq { display: inline-flex; }
+.sb-now .sb-eq { position: static; }
+.sb-btn.playing { outline: 3px solid var(--ink); outline-offset: 2px; box-shadow: 0 0 0 6px var(--pickle); }
+@keyframes sb-eq { 0%, 100% { transform: scaleY(.25); } 50% { transform: scaleY(1); } }
+
+/* phones: big thumbs, two columns */
+@media (max-width: 560px) {
+  .soundboard-wrap { padding: 0 12px; }
+  .soundboard-wrap h2 { font-size: 1.5rem; }
+  .soundboard { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .sb-btn { min-height: 68px; font-size: .95rem; }
+  .sb-tabs { justify-content: flex-start; }
+  .sb-toolbar .btn { flex: 1 1 40%; }
+  .sb-search { flex-basis: 100%; max-width: none; }
+  .soundboard .sb-key { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-eq i { animation: none; transform: scaleY(.7); }
+  .sb-btn, .sb-tab { transition: none; }
+}

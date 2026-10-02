@@ -91,39 +91,182 @@ export function toast(message, { error = false, ms = 3200, html = false, cls = "
 // ---------- meme sounds: real clips in /sounds + a few synthesized ones ----------
 // Sound is ON by default and only the 🔊 button turns it off (رايق mode no longer mutes).
 // Browsers only allow audio after the first click/tap, so nothing autoplays.
+//
+// ┌─ SOUND CONTRACT (owned by the sound system — other code should only rely on this) ─┐
+// │ play(name, { volume, loop }) → HTMLAudioElement for clips (so callers can .pause()  │
+// │   a looping ring), or null for synth / TTS / sound-off. { exact: true } skips the   │
+// │   alias lookup (the soundboard uses it so "suspense" is always that one clip).      │
+// │ stopAllClips()  → pauses every clip currently playing.                              │
+// │ CLIPS[name] = [file, label, category]   (file lives in /sounds/<file>.mp3)          │
+// │ SOUND_ALIASES[alias] = [clip names…]    (play(alias) picks one at random)           │
+// │ SOUND_CATEGORIES = ordered [id, label] list for the soundboard tabs.                │
+// │ Events on document: "clip:start" / "clip:end" with detail { name, audio }.          │
+// │                                                                                      │
+// │ USE THESE SEMANTIC ALIASES going forward (pick the meaning, not the meme):          │
+// │   success fail click add remove cash drama suspense celebrate wrong notify          │
+// │   whoosh slap magic drumroll bonk hype lol bigfail egypt run eat                    │
+// │ Legacy names that will keep working forever:                                        │
+// │   faah boom bruh getout ka ring back sad buzzer no what goofy laugh cap sideeye     │
+// │   care ahhh pop airhorn ohno pipe tung win error ashta sheesh                       │
+// │ "pop" + "tick" are tiny synth blips (zero latency, good for UI spam).               │
+// │ "ashta" is a spoken Egyptian line (TTS) — never shown on the soundboard.            │
+// └──────────────────────────────────────────────────────────────────────────────────────┘
 let ac = null;
 export const soundOn = () => store.get("zk_sound", true);
 
-// name -> file in public/sounds
+export const SOUND_CATEGORIES = [
+  ["reactions", "🤨 Reactions"],
+  ["fails", "💀 Fails"],
+  ["wins", "🏆 Wins"],
+  ["money", "💸 Phone & money"],
+  ["egyptian", "🇪🇬 Egyptian"],
+  ["sfx", "🎛️ SFX"],
+  ["chaos", "🌀 Chaos"],
+];
+
+// name -> [file in public/sounds, soundboard label, category]
 export const CLIPS = {
-  faah: ["faaah", "😱 FAAAH"],
-  boom: ["vine-boom", "💥 Vine boom"],
-  bruh: ["bruh", "😐 Bruh"],
-  getout: ["get-out", "🚪 Get out!"],
-  ka: ["apple-pay", "💳 Apple Pay"],
-  ring: ["phone-ringing", "📱 Your phone ringing"],
-  back: ["back-in-the-day", "👴 Back in the day"],
-  sad: ["sad-violin", "🎻 Sad violin"],
-  buzzer: ["wrong-buzzer", "❌ Wrong buzzer"],
-  no: ["how-about-no", "🙅 How about no"],
-  what: ["wait-what", "🤨 Wait what"],
-  goofy: ["goofy-laugh", "🤪 Goofy laugh"],
-  laugh: ["sitcom-laugh", "😂 Sitcom laugh"],
-  cap: ["stop-the-cap", "🧢 Stop the cap"],
-  sideeye: ["side-eye", "👀 Side eye"],
-  care: ["we-do-not-care", "🤷 We do not care"],
-  ahhh: ["ahhh", "😫 AHHHH"],
+  // reactions
+  bruh: ["bruh", "😐 Bruh", "reactions"],
+  what: ["wait-what", "🤨 Wait what", "reactions"],
+  huh: ["huh-cat", "🐱 Huh?", "reactions"],
+  omg: ["omg-bruh", "😳 Oh my god bro", "reactions"],
+  sideeye: ["side-eye", "👀 Side eye", "reactions"],
+  cap: ["stop-the-cap", "🧢 Stop the cap", "reactions"],
+  no: ["how-about-no", "🙅 How about no", "reactions"],
+  nope: ["nope", "✋ Nope", "reactions"],
+  sure: ["are-you-sure", "🧐 Are you sure about that", "reactions"],
+  care: ["we-do-not-care", "🤷 We do not care", "reactions"],
+  getout: ["get-out", "🚪 Get out!", "reactions"],
+  laugh: ["sitcom-laugh", "😂 Sitcom laugh", "reactions"],
+  sheesh: ["sheesh", "🥶 Sheeesh", "reactions"],
+  rizz: ["rizz", "😏 Rizz", "reactions"],
+  back: ["back-in-the-day", "👴 Back in the day", "reactions"],
+  // fails
+  faah: ["faaah", "😱 FAAAH", "fails"],
+  sad: ["sad-violin", "🎻 Sad violin", "fails"],
+  buzzer: ["wrong-buzzer", "❌ Wrong buzzer", "fails"],
+  error: ["windows-error", "🖥️ Windows error", "fails"],
+  ohno: ["mario-death", "🍄 Mario died", "fails"],
+  spongefail: ["spongebob-fail", "🧽 SpongeBob fail", "fails"],
+  damage: ["emotional-damage", "💔 Emotional damage", "fails"],
+  oof: ["roblox-oof", "🟥 Roblox oof", "fails"],
+  missionfailed: ["mission-failed", "🎖️ Mission failed", "fails"],
+  crickets: ["crickets", "🦗 Crickets", "fails"],
+  // wins
+  win: ["tada", "🎉 Ta-da!", "wins"],
+  correct: ["correct", "✅ Correct answer", "wins"],
+  wow: ["anime-wow", "🤩 Anime WOW", "wins"],
+  airhorn: ["airhorn", "📯 Airhorn", "wins"],
+  applause: ["applause", "👏 Applause", "wins"],
+  yay: ["kids-yay", "🧒 Kids yay", "wins"],
+  yippee: ["yippee", "🥳 Yippee", "wins"],
+  // phone & money
+  ka: ["apple-pay", "💳 Apple Pay", "money"],
+  chaching: ["cha-ching", "💰 Cha-ching", "money"],
+  register: ["cash-register", "🧾 Cash register", "money"],
+  coin: ["mario-coin", "🪙 Coin", "money"],
+  ring: ["phone-ringing", "📱 Your phone ringing", "money"],
+  ding: ["iphone-ding", "🔔 iPhone ding", "money"],
+  ping: ["discord-ping", "💬 Discord ping", "money"],
+  // egyptian / arabic
+  nokia: ["arabic-nokia", "📞 Arabic Nokia ringtone", "egyptian"],
+  habibi: ["hamood-habibi", "🧔 Hamood habibi", "egyptian"],
+  dubai: ["habibi-dubai", "🏙️ Habibi come to Dubai", "egyptian"],
+  salam: ["salam-alaikum", "👋 Salam alaikum", "egyptian"],
+  arabian: ["arabian-music", "🐪 Arabian meme music", "egyptian"],
+  // sfx
+  whoosh: ["whoosh", "💨 Whoosh", "sfx"],
+  slap: ["slap", "🖐️ Slap", "sfx"],
+  bonk: ["bonk", "🔨 Bonk", "sfx"],
+  boing: ["boing", "🌀 Boing", "sfx"],
+  magic: ["magic-wand", "✨ Magic", "sfx"],
+  drumroll: ["drumroll", "🥁 Drumroll", "sfx"],
+  dundun: ["dun-dun-dun", "🎭 Dun dun DUN", "sfx"],
+  suspense: ["suspense", "😰 Suspense", "sfx"],
+  mouseclick: ["mouse-click", "🖱️ Click", "sfx"],
+  run: ["cartoon-running", "🏃 Cartoon run", "sfx"],
+  gulp: ["gulp", "🥤 Gulp gulp", "sfx"],
+  wheel: ["wheel-spin", "🎡 Wheel spin", "sfx"],
+  // chaos
+  boom: ["vine-boom", "💥 Vine boom", "chaos"],
+  pipe: ["metal-pipe", "🔩 Metal pipe", "chaos"],
+  taco: ["taco-bell", "🔔 Taco Bell bong", "chaos"],
+  goofy: ["goofy-laugh", "🤪 Goofy laugh", "chaos"],
+  ahhh: ["ahhh", "😫 AHHHH", "chaos"],
+  birds: ["angry-birds", "🐦 Angry Birds", "chaos"],
+  tung: ["tung-tung", "🥁 Tung tung sahur", "chaos"],
 };
-const clipCache = {};
-function playClip(name, { loop = false, volume = 0.8 } = {}) {
-  const base = (clipCache[name] ||= new Audio(`/sounds/${CLIPS[name][0]}.mp3`));
-  const a = base.paused ? base : base.cloneNode();
-  a.loop = loop;
-  a.volume = volume;
-  a.currentTime = 0;
-  a.play().catch(() => {});
+
+// semantic alias -> clip/synth names (one is picked at random for variety)
+export const SOUND_ALIASES = {
+  success: ["correct", "win", "yippee"],
+  fail: ["spongefail", "ohno", "missionfailed", "buzzer"],
+  click: ["tick"],
+  add: ["coin", "pop"],
+  remove: ["oof", "whoosh"],
+  cash: ["chaching", "ka", "register"],
+  drama: ["dundun", "boom", "suspense"],
+  suspense: ["suspense", "dundun"],
+  celebrate: ["airhorn", "applause", "yay", "wow"],
+  wrong: ["buzzer", "error", "nope"],
+  notify: ["ding", "ping"],
+  hype: ["sheesh", "rizz", "wow"],
+  lol: ["laugh", "goofy"],
+  bigfail: ["sad", "damage", "crickets"],
+  egypt: ["nokia", "habibi", "dubai", "salam", "arabian"],
+  run: ["run"],
+  eat: ["gulp"],
+};
+
+const MAX_ACTIVE = 4; // cap overlapping clips so spam-clicking never lags
+const POOL_PER_CLIP = 2; // reuse at most this many <audio> per clip
+const pools = {}; // name -> [HTMLAudioElement]
+const active = new Set();
+
+function endClip(a) {
+  if (!active.delete(a)) return;
+  document.dispatchEvent(new CustomEvent("clip:end", { detail: { name: a.dataset.clip, audio: a } }));
+}
+
+function makeAudio(name) {
+  const a = new Audio();
+  a.preload = "none"; // nothing downloads until the first play
+  a.src = `/sounds/${CLIPS[name][0]}.mp3`;
+  a.dataset.clip = name;
+  a.addEventListener("ended", () => endClip(a));
+  a.addEventListener("pause", () => endClip(a));
+  a.addEventListener("error", () => endClip(a));
   return a;
 }
+
+function playClip(name, { loop = false, volume = 0.8 } = {}) {
+  const pool = (pools[name] ||= []);
+  let a = pool.find((x) => x.paused);
+  if (!a && pool.length < POOL_PER_CLIP) pool.push((a = makeAudio(name)));
+  if (!a) a = pool[0]; // all busy: restart the oldest copy instead of making more
+  if (!active.has(a) && active.size >= MAX_ACTIVE) {
+    // evict the oldest non-looping clip (keep e.g. a ringing phone alive)
+    const victim = [...active].find((x) => !x.loop) || active.values().next().value;
+    victim.pause();
+    endClip(victim); // the "pause" event is async — free the slot right now
+  }
+  const restarted = active.delete(a); // re-add so it counts as newest
+  a.loop = loop;
+  a.volume = Math.max(0, Math.min(1, volume));
+  try { a.currentTime = 0; } catch { /* not loaded yet */ }
+  active.add(a);
+  if (!restarted) document.dispatchEvent(new CustomEvent("clip:start", { detail: { name, audio: a } }));
+  a.play().catch(() => endClip(a));
+  return a;
+}
+
+/** Pause every clip that is currently playing (soundboard "stop all", hang-ups, …). */
+export function stopAllClips() {
+  [...active].forEach((a) => { a.pause(); endClip(a); });
+}
+/** Is this clip name currently playing? */
+export const clipPlaying = (name) => [...active].some((a) => a.dataset.clip === name);
 const ctx = () => {
   ac ||= new (window.AudioContext || window.webkitAudioContext)();
   if (ac.state === "suspended") ac.resume();
@@ -284,23 +427,17 @@ export function say(text, { arabic = /[\u0600-\u06FF]/.test(text), rate = 0.92, 
   return done;
 }
 
+// Synth blips (instant, no download) + the one spoken line. Real memes live in CLIPS.
 const SOUNDS = {
   pop: () => tone({ from: 600, to: 1400, dur: 0.08, gain: 0.25 }),
-  sheesh: () => say("sheeeeeesh", { pitch: 1.2, rate: 0.5 }),
-  ohno: () => [659, 659, 523, 440].forEach((f, i) => tone({ type: "square", from: f, dur: 0.15, at: i * 0.17, gain: 0.08 })),
-  airhorn: () => [0, 0.33, 0.66].concat(1).forEach((at, i) =>
-    [466, 470, 233].forEach((f) => tone({ type: "sawtooth", from: f, dur: i === 3 ? 0.8 : 0.25, at, gain: 0.07, filter: { type: "highpass", freq: 300 } })),
-  ),
-  error: () => playClip("buzzer", { volume: 0.5 }),
-  pipe: () => { [520, 1347, 2210, 3390].forEach((f) => tone({ from: f, dur: 1.5, gain: 0.08 })); noise({ dur: 0.02, gain: 0.5 }); },
-  tung: () => { [0, 0.25, 0.5].forEach((at) => tone({ from: 80, to: 50, dur: 0.3, at, gain: 0.8 })); setTimeout(() => say("tung tung tung sahur", { pitch: 0.3, rate: 0.8 }), 800); },
-  win: () => [523, 659, 784, 1047].forEach((f, i) => tone({ type: "square", from: f, dur: 0.12, at: i * 0.11, gain: 0.08 })),
+  tick: () => { tone({ type: "square", from: 1800, dur: 0.025, gain: 0.06 }); noise({ dur: 0.01, gain: 0.08, highpass: 3000 }); },
   ashta: () => say(pick(["اشطا يا باشا", "عاش يا وحش", "فل الفل", "قشطة"]), { arabic: true, rate: 1.1 }),
 };
 
 export function play(name, opts) {
   if (!soundOn()) return null;
   try {
+    if (SOUND_ALIASES[name] && !opts?.exact) name = pick(SOUND_ALIASES[name]);
     if (CLIPS[name]) return playClip(name, opts);
     SOUNDS[name]?.();
   } catch {
@@ -418,21 +555,46 @@ function googlyEyes() {
 }
 
 // ---------- food crumb cursor trail ----------
+// Perf: at most one crumb per 80ms, spawned inside rAF, max 10 alive, transform/opacity-only
+// animation (position via CSS vars), removed on animationend. Skipped when calm or tab hidden.
 function crumbTrail() {
   if (isTouch()) return;
   const crumbs = ["🍗", "🌶️", "🧆", "🍚", "🌯", "🥙", "🫘"];
+  const MAX = 10;
+  let alive = 0;
   let last = 0;
-  document.addEventListener("pointermove", (e) => {
-    if (calm() || Date.now() - last < 70) return;
-    last = Date.now();
+  let queued = null;
+  const spawn = () => {
+    const p = queued;
+    queued = null;
+    if (!p || alive >= MAX) return;
     const s = document.createElement("span");
     s.className = "trail";
+    s.setAttribute("aria-hidden", "true");
     s.textContent = pick(crumbs);
-    s.style.left = `${e.clientX + 8}px`;
-    s.style.top = `${e.clientY + 8}px`;
+    s.style.setProperty("--x", `${p.x + 8}px`);
+    s.style.setProperty("--y", `${p.y + 8}px`);
+    alive++;
+    const done = () => {
+      if (!s.isConnected) return;
+      s.remove();
+      alive--;
+    };
+    s.addEventListener("animationend", done, { once: true });
+    setTimeout(done, 1200); // safety net if animations are disabled
     document.body.append(s);
-    setTimeout(() => s.remove(), 900);
-  });
+  };
+  document.addEventListener(
+    "pointermove",
+    (e) => {
+      const now = performance.now();
+      if (now - last < 80 || document.hidden || calm()) return;
+      last = now;
+      if (!queued) requestAnimationFrame(spawn);
+      queued = { x: e.clientX, y: e.clientY };
+    },
+    { passive: true },
+  );
 }
 
 // ---------- tab title guilt trip ----------
@@ -465,41 +627,62 @@ function rageClicks() {
 const faceEl = (url, fallback = "🍗") => (url ? `<img src="${esc(url)}" alt="">` : fallback);
 
 // ---------- idle DVD bounce ----------
+// Perf: activity only stamps a timestamp (no timer churn per pointermove); one 3s check starts
+// the bounce after 15s idle. Movement is time-based in rAF with translate3d, viewport size is
+// cached (no layout reads per frame), and it pauses when the tab is hidden.
 function idleDvd() {
-  let timer;
+  const IDLE_MS = 15_000;
+  let lastActive = performance.now();
   let dvd = null;
   let raf = 0;
+  let starting = false;
+  let vw = innerWidth;
+  let vh = innerHeight;
+  addEventListener("resize", () => ((vw = innerWidth), (vh = innerHeight)), { passive: true });
   const stop = () => {
     cancelAnimationFrame(raf);
     dvd?.remove();
     dvd = null;
-    clearTimeout(timer);
-    timer = setTimeout(start, 15_000);
+  };
+  const wake = () => {
+    lastActive = performance.now();
+    if (dvd) stop();
   };
   async function start() {
-    if (calm() || document.hidden) return stop();
+    if (dvd || starting || calm() || document.hidden) return;
+    starting = true;
     const faces = (await getDishes()).map((d) => d.photo_url).filter(Boolean);
+    starting = false;
+    if (performance.now() - lastActive < IDLE_MS || document.hidden) return;
     dvd = document.createElement("div");
     dvd.className = "dvd";
     dvd.setAttribute("aria-hidden", "true");
     dvd.innerHTML = faceEl(faces.length ? pick(faces) : null, "👨‍🍳");
     document.body.append(dvd);
-    let x = 40, y = 40, vx = 2.2, vy = 1.8;
+    const el = dvd;
+    let x = 40, y = 40, vx = 0.13, vy = 0.11; // px per ms
+    let prev = performance.now();
     const colors = ["#ffc700", "#ff69b4", "#8ace00", "#fa4b13", "#ff3b30"];
-    const step = () => {
-      const maxX = innerWidth - 90, maxY = innerHeight - 90;
-      x += vx;
-      y += vy;
-      if (x <= 0 || x >= maxX) { vx *= -1; dvd.style.background = pick(colors); }
-      if (y <= 0 || y >= maxY) { vy *= -1; dvd.style.background = pick(colors); }
-      dvd.style.transform = `translate(${x}px, ${y}px)`;
+    const step = (t) => {
+      if (dvd !== el) return;
+      const dt = Math.min(48, t - prev);
+      prev = t;
+      const maxX = vw - 90, maxY = vh - 90;
+      x += vx * dt;
+      y += vy * dt;
+      if (x <= 0 || x >= maxX) { vx = x <= 0 ? Math.abs(vx) : -Math.abs(vx); el.style.backgroundColor = pick(colors); }
+      if (y <= 0 || y >= maxY) { vy = y <= 0 ? Math.abs(vy) : -Math.abs(vy); el.style.backgroundColor = pick(colors); }
+      el.style.transform = `translate3d(${x | 0}px, ${y | 0}px, 0)`;
       raf = requestAnimationFrame(step);
     };
-    step();
+    raf = requestAnimationFrame(step);
     toast("قفلت؟ Still deciding? The chef is judging you 👀");
   }
-  ["pointermove", "keydown", "scroll", "touchstart"].forEach((ev) => addEventListener(ev, () => (dvd || timer) && stop(), { passive: true }));
-  stop();
+  ["pointermove", "pointerdown", "keydown", "scroll", "wheel", "touchstart"].forEach((ev) => addEventListener(ev, wake, { passive: true }));
+  document.addEventListener("visibilitychange", () => (document.hidden ? stop() : wake()));
+  setInterval(() => {
+    if (!dvd && performance.now() - lastActive >= IDLE_MS) start();
+  }, 3000);
 }
 
 // ---------- fake live order notifications ----------
@@ -507,7 +690,8 @@ const FAKE_PEOPLE = ["Hossam from Accounting", "Mona from HR", "the intern", "yo
 function liveOrders() {
   const tick = async () => {
     setTimeout(tick, 25_000 + Math.random() * 25_000);
-    if (calm() || document.hidden) return;
+    // Don't interrupt someone mid-modal (dish / wheel) or spend work on a hidden tab
+    if (calm() || document.hidden || document.querySelector("dialog[open]")) return;
     const dishes = (await getDishes()).filter((d) => !d.badges.includes("sold_out"));
     if (!dishes.length) return;
     const d = pick(dishes);
@@ -523,24 +707,39 @@ function liveOrders() {
 }
 
 // ---------- easter eggs: Konami code, typing يلا / tung / unc ----------
+// Perf: one rain at a time, capped count (fewer on small screens), compositor-only animation,
+// built off-DOM in a fragment, and the layer is removed as soon as the last drop lands.
+let raining = false;
 export async function rainFaces(count = 24) {
   if (calm()) return toast("يلا بينا 🏃 (رايق mode is on, so no rain)");
+  if (document.hidden || raining) return;
+  raining = true;
   const faces = (await getDishes()).map((d) => d.photo_url).filter(Boolean);
+  const n = Math.min(count, innerWidth < 600 ? 10 : 18);
   const layer = document.createElement("div");
-  layer.className = "fx-layer";
+  layer.className = "fx-layer raining";
   layer.setAttribute("aria-hidden", "true");
-  for (let i = 0; i < count; i++) {
+  const frag = document.createDocumentFragment();
+  let longest = 0;
+  for (let i = 0; i < n; i++) {
     const d = document.createElement("div");
     d.className = "rain";
-    d.style.left = `${Math.random() * 95}vw`;
-    d.style.animationDuration = `${2 + Math.random() * 2.5}s`;
-    d.style.animationDelay = `${Math.random() * 1.5}s`;
-    d.innerHTML = faceEl(faces.length ? faces[i % faces.length] : null, ["🍗", "🌯", "🍚", "🫕"][i % 4]);
-    layer.append(d);
+    const dur = 2 + Math.random() * 2.5;
+    const delay = Math.random() * 1.5;
+    longest = Math.max(longest, dur + delay);
+    d.style.setProperty("--x", `${Math.round(Math.random() * 92)}vw`);
+    d.style.animationDuration = `${dur}s`;
+    d.style.animationDelay = `${delay}s`;
+    d.innerHTML = faces.length ? `<img src="${esc(faces[i % faces.length])}" alt="" decoding="async">` : ["🍗", "🌯", "🍚", "🫕"][i % 4];
+    frag.append(d);
   }
+  layer.append(frag);
   document.body.append(layer);
   play("airhorn");
-  setTimeout(() => layer.remove(), 6000);
+  setTimeout(() => {
+    layer.remove();
+    raining = false;
+  }, (longest + 0.3) * 1000);
 }
 
 export function toggleUnc() {
@@ -566,6 +765,7 @@ function easterEggs() {
       typed = "";
       toast("🚨 SECRET MENU UNLOCKED 🚨 brainrot level: critical");
       rainFaces();
+      setTimeout(() => play("egypt"), 400);
     } else if (typed.endsWith("tung")) {
       typed = "";
       play("tung");
@@ -576,7 +776,7 @@ function easterEggs() {
     } else if (typed.endsWith("67")) {
       typed = "";
       toast("6️⃣7️⃣ 6️⃣7️⃣ 6️⃣7️⃣");
-      play("boom");
+      play("taco");
     }
   });
 }

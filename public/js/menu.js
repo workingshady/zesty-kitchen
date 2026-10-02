@@ -2,9 +2,9 @@ import {
   $, $$, api, esc, egp, toast, play, say, calm, isTouch, pick, getConfig, getDishes, initCommon, chefHtml, toggleUnc, fitImg, CLIPS, soundOn,
   getCart, saveCart, addToCart, cartCount, linePrice, totalsHtml, avatarHtml,
 } from "./common.js";
+import { initHome, dishTools } from "./home.js";
 
 const REVIEWER_BADGES = ["Verified Eater ✅", "Top 1% Complainer", "Ate Here Once In 2019", "Certified Hater", "Aura Farmer 🌾", "NPC Reviewer 🤖", "Delulu Foodie", "Sigma Snacker", "Unc 👴", "Glazer 🍩"];
-const STICKERS = ["عاش", "chopped", "6 7", "NPC", "W", "L", "slay 💅", "اتقل", "cooked 🔥", "مود", "+1000 aura", "red flag 🚩"];
 const PLATE_EMOJI = { mandi: "🍚", grills: "🍢", shawarma: "🌯", seafood: "🦐", fatta: "🥣", sandwiches: "🥪", appetizers: "🥗", trays: "🫕", soups: "🍲", desserts: "🍰", expired: "🦴", picks: "🍽️", ful: "🫘", koshary: "🍝", taameya: "🧆", mahshi: "🫑", molokhia: "🥬", basbousa: "🍯", bread: "🥖", asab: "🧃", torshi: "🌶️" };
 
 let config;
@@ -94,35 +94,7 @@ function renderHype() {
   $("#marquee").innerHTML = html + html; // doubled for a seamless loop
 }
 
-function renderBoard() {
-  const medals = ["🥇", "🥈", "🥉", "4", "5"];
-  const max = Math.max(1, ...board.top.map((t) => t.orders));
-  $("#board-stats").innerHTML = `<span class="pill">🧾 ${board.total_orders || 0} orders total</span><span class="pill">🍽️ ${dishes.length} coworkers on the menu</span>`;
-  $("#board-top").innerHTML = board.top.length
-    ? board.top
-        .map(
-          (d, i) => `<li><span class="rank">${medals[i]}</span>${avatarHtml(d)}<span dir="auto"><b>${esc(d.name_ar)}</b>${d.name_en ? `<br><small>${esc(d.name_en)}</small>` : ""}</span><span class="count">${d.orders}×</span>
-          <span class="bar" aria-hidden="true"><span style="width:${(d.orders / max) * 100}%"></span></span></li>`,
-        )
-        .join("")
-    : `<li class="board__empty"><b>No orders yet. The throne is empty 👑</b><span>Be the first W. Order someone and put them on the board.</span><a class="btn red" href="#menu-top">Start ordering 🍽️</a></li>`;
-  $("#board-worst").innerHTML = board.worst
-    ? `<div class="worst__face">${avatarHtml(board.worst)}<b dir="auto">${esc(board.worst.name_ar)}</b><span>${board.worst.orders} orders. L + ratio 💀</span><small>Nobody wants them. Be nice and order one? 🥺</small></div>`
-    : "<p>Nobody's losing yet. Give it time 😈</p>";
-  const top = board.top[0];
-  const champ = top || dishes.find((d) => d.photo_url && !d.badges.includes("sold_out"));
-  $("#hero-top").innerHTML = champ
-    ? `<button class="champ" type="button" data-id="${champ.id}" aria-label="Open ${esc(champ.name_ar)}">
-        <span class="champ__photo">${champ.photo_url ? fitImg(champ.photo_url) : `<span class="emoji-plate">🍽️</span>`}
-          <span class="champ__crown" aria-hidden="true">👑</span>
-          <span class="champ__count">${top ? `🔥 ${top.orders}× ordered` : "👀 up for grabs"}</span>
-        </span>
-        <span class="champ__name" dir="auto">${esc(champ.name_ar)}</span>
-        <span class="champ__sub">${top ? "Main character energy 🎬" : "The throne is empty. Order to crown someone 👑"}</span>
-      </button>`
-    : "<p>Nobody yet. The throne is empty 👑<br>Your order decides who's #1.</p>";
-  $(".champ")?.addEventListener("click", (e) => openDish(e.currentTarget.dataset.id));
-}
+// Hero champion, leaderboard, worst seller, side quests and the wheel live in home.js
 
 // ---------- Dish modal ----------
 let dodges = 0;
@@ -154,8 +126,10 @@ async function openDish(id) {
         <div class="dish-photo" id="dish-photo">${photoOrEmoji(d, d.name_ar)}</div>
         <div class="photo-tools">
           <button class="btn sky" type="button" id="scan-aura">📸 Scan aura</button>
-          <button class="btn pink" type="button" id="slap">🫵 Slap a sticker</button>
+          <button class="btn pink" type="button" id="slap" aria-expanded="false">🫵 Stickers</button>
+          <button class="btn white" type="button" id="roast">🎤 Roast</button>
         </div>
+        <div class="photo-extras" id="photo-extras" aria-live="polite"></div>
       </div>
       <div class="dish-info">
         <div class="badges">${c ? `<span class="badge">${c.emoji} ${esc(c.ar)} / ${esc(c.en)}</span>` : ""}${d.badges.map((b) => `<span class="badge ${b}">${badgeLabel(b)}</span>`).join("")}</div>
@@ -191,7 +165,7 @@ async function openDish(id) {
 
   $("#dish-foot").innerHTML = `
     <div class="stepper"><button type="button" data-q="-1" aria-label="Less">−</button><output id="qty" aria-live="polite">1</output><button type="button" data-q="1" aria-label="More">+</button></div>
-    <button class="btn big red runaway" id="add-btn" type="button" ${soldOut ? "disabled" : ""}>${soldOut ? "Sold out 💀" : `<span class="t">Add to cart · ضيف</span>&nbsp;<span id="line-total"></span>`}</button>`;
+    <button class="btn big red runaway" id="add-btn" type="button" ${soldOut ? "disabled" : ""}>${soldOut ? "Sold out 💀" : `<span class="t">Add to cart<span class="add-ar"> · ضيف</span></span>&nbsp;<span id="line-total"></span>`}</button>`;
 
   countUp($("#kcal"), fakeKcal(d));
   const form = $("#add-form");
@@ -220,7 +194,7 @@ async function openDish(id) {
     const size = form.size.value;
     const addons = $$("[name=addon]:checked", form).map((x) => x.value);
     addToCart({ dish_id: d.id, name_ar: d.name_ar, name_en: d.name_en, photo_url: d.photo_url, size, addons, qty, unit_price: linePrice(config, d.price, size, addons) });
-    play("ka");
+    play("add");
     setTimeout(() => play("ashta"), 700);
     toast(`${d.name_ar} اتضاف. اشطا يا باشا 🫡`);
     $("#open-cart").classList.remove("bump");
@@ -229,8 +203,7 @@ async function openDish(id) {
     $("#dish-modal").close();
   });
 
-  $("#scan-aura").addEventListener("click", scanAura);
-  $("#slap").addEventListener("click", slapSticker);
+  dishTools(d);
   $$(".rating", $("#review-form")).forEach((group) =>
     group.addEventListener("change", () => {
       const v = Number(group.querySelector("input:checked").value);
@@ -250,34 +223,6 @@ function countUp(el, target) {
     if (p < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
-}
-
-function scanAura() {
-  const photo = $("#dish-photo");
-  $$(".scanline, .aura-result", photo).forEach((x) => x.remove());
-  photo.insertAdjacentHTML("beforeend", `<span class="scanline"></span>`);
-  play("sheesh");
-  setTimeout(() => {
-    $(".scanline", photo)?.remove();
-    const score = pick([6700, 1000, 420, -67, -1000, 9001, 67]);
-    const verdict = score > 500 ? "aura farming detected 🌾" : score > 0 ? "mid but valid" : "chopped 💀";
-    photo.insertAdjacentHTML("beforeend", `<span class="aura-result">${score > 0 ? "+" : ""}${score.toLocaleString()} aura · ${verdict}</span>`);
-    play(score > 0 ? "boom" : "sideeye");
-  }, calm() ? 0 : 1800);
-}
-
-function slapSticker() {
-  const s = document.createElement("span");
-  s.className = "sticker";
-  const r = Math.round((Math.random() - 0.5) * 40);
-  s.style.setProperty("--r", `${r}deg`);
-  s.style.transform = `rotate(${r}deg)`;
-  s.style.left = `${5 + Math.random() * 55}%`;
-  s.style.top = `${5 + Math.random() * 65}%`;
-  s.style.background = pick(["#ffc700", "#ff69b4", "#8ace00", "#7fd3ff", "#fff"]);
-  s.textContent = pick(STICKERS);
-  $("#dish-photo").append(s);
-  play("pipe");
 }
 
 function ratingHtml(name, label, icon) {
@@ -318,7 +263,7 @@ async function postReview(e, dishId) {
     f.reset();
     $$(".rating label", f).forEach((l) => l.classList.remove("on"));
     toast("Review posted. Slander delivered 📨 عاش");
-    play("boom");
+    play("success");
   } catch (err) {
     toast(err.message, { error: true });
     play("faah");
@@ -354,7 +299,7 @@ function dodge(btn) {
   const y = Math.round(-20 - Math.random() * 60);
   btn.style.transform = `translate(${x}px, ${y}px) rotate(${(Math.random() - 0.5) * 20}deg)`;
   toast(["اتقل يسطا 🏃", "too slow 😹", "skill issue"][dodges - 1] || "fine.");
-  play(dodges < 3 ? "bruh" : "goofy");
+  play(["huh", "run", "goofy"][dodges - 1] || "bonk");
   if (dodges >= 3) {
     setTimeout(() => {
       btn.style.transform = "";
@@ -368,89 +313,6 @@ function setupRunaway(btn) {
   if (!btn || btn.disabled) return;
   btn.addEventListener("pointerenter", (e) => {
     if (e.pointerType === "mouse" && !calm() && dodges < 3) dodge(btn);
-  });
-}
-
-// ---------- Spin wheel ----------
-let wheelAngle = 0;
-let spinning = false;
-const TAU = Math.PI * 2;
-
-function drawWheel(list) {
-  const g = $("#wheel").getContext("2d");
-  const n = list.length;
-  const colors = ["#ffc700", "#ff69b4", "#8ace00", "#7fd3ff", "#fa4b13", "#ffffff"];
-  g.clearRect(0, 0, 600, 600);
-  g.save();
-  g.translate(300, 300);
-  g.rotate(wheelAngle);
-  list.forEach((d, i) => {
-    const a0 = (i / n) * TAU;
-    const a1 = ((i + 1) / n) * TAU;
-    g.beginPath();
-    g.moveTo(0, 0);
-    g.arc(0, 0, 295, a0, a1);
-    g.closePath();
-    g.fillStyle = colors[i % colors.length];
-    g.fill();
-    g.lineWidth = 4;
-    g.strokeStyle = "#111";
-    g.stroke();
-    g.save();
-    g.rotate((a0 + a1) / 2);
-    g.textAlign = "right";
-    g.fillStyle = "#111";
-    g.font = "bold 28px Lalezar, sans-serif";
-    g.fillText(d.name_ar.slice(0, 16), 270, 10);
-    g.restore();
-  });
-  g.restore();
-}
-
-function setupWheel() {
-  const list = () => dishes.filter((d) => !d.badges.includes("sold_out"));
-  $("#open-wheel").addEventListener("click", () => {
-    if (!list().length) return toast("The menu is empty 🦗");
-    $("#wheel-result").textContent = "";
-    drawWheel(list());
-    $("#wheel-modal").showModal();
-  });
-  $("#close-wheel").addEventListener("click", () => $("#wheel-modal").close());
-  $("#spin").addEventListener("click", () => {
-    if (spinning) return;
-    const items = list();
-    const n = items.length;
-    const winner = Math.floor(Math.random() * n);
-    spinning = true;
-    // The pointer sits at the top (angle −90°). Rotate so the winner's slice centre ends there, after several full turns.
-    const start = wheelAngle;
-    const landing = -Math.PI / 2 - ((winner + 0.5) / n) * TAU;
-    const turns = 5 + Math.floor(Math.random() * 3);
-    let end = landing - turns * TAU;
-    while (end > start - 4 * TAU) end -= TAU;
-    const duration = calm() ? 10 : 4200;
-    const t0 = performance.now();
-    let lastTick = Math.floor(start / (TAU / n));
-    const step = (t) => {
-      const p = Math.min(1, (t - t0) / duration);
-      wheelAngle = start + (end - start) * (1 - Math.pow(1 - p, 4));
-      drawWheel(items);
-      const tick = Math.floor(wheelAngle / (TAU / n));
-      if (tick !== lastTick) {
-        lastTick = tick;
-        play("pop");
-      }
-      if (p < 1) return requestAnimationFrame(step);
-      spinning = false;
-      const d = items[winner];
-      $("#wheel-result").innerHTML = `🎉 The wheel chose: <b dir="auto">${esc(d.name_ar)}</b>`;
-      play("airhorn");
-      setTimeout(() => {
-        $("#wheel-modal").close();
-        openDish(d.id);
-      }, calm() ? 300 : 1400);
-    };
-    requestAnimationFrame(step);
   });
 }
 
@@ -497,7 +359,7 @@ function onCartClick(e) {
     if (!calm() && step < 2) {
       e.target.dataset.step = step + 1;
       e.target.textContent = removeSteps[step];
-      play(step === 0 ? "what" : "no");
+      play(step === 0 ? "sure" : "no");
       return;
     }
     cart.splice(Number(rm), 1);
@@ -515,19 +377,20 @@ function toggleCart(open) {
 }
 
 // ---------- Soundboard (footer) ----------
+// Real clips only (tabs, search, random, stop all, 1–9 keys) — lives in soundboard.js, loaded lazily.
 function setupSoundboard() {
-  const extra = { tung: "🥁 Tung tung sahur", airhorn: "📯 Airhorn", sheesh: "😤 Sheesh", ashta: "🇪🇬 اشطا يا باشا" };
-  const all = { ...Object.fromEntries(Object.entries(CLIPS).map(([k, v]) => [k, v[1]])), ...extra };
-  $("#soundboard").innerHTML = Object.entries(all).map(([k, label]) => `<button class="btn white" type="button" data-sound="${k}">${label}</button>`).join("");
-  $("#soundboard").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-sound]");
-    if (!b) return;
-    if (!soundOn()) return toast("🔇 Sounds are OFF. Turn them on with the 🔊 button (bottom left)");
-    play(b.dataset.sound);
-    b.classList.remove("bump");
-    void b.offsetWidth;
-    b.classList.add("bump");
-  });
+  if (!$("#soundboard")) return;
+  import("./soundboard.js")
+    .then((m) => m.mountSoundboard())
+    .catch(() => {
+      $("#soundboard").innerHTML = Object.entries(CLIPS).map(([k, v]) => `<button class="sb-btn" type="button" data-sound="${k}">${esc(v[1])}</button>`).join("");
+      $("#soundboard").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-sound]");
+        if (!b) return;
+        if (!soundOn()) return toast("🔇 Sounds are OFF. Turn them on with the 🔊 button (bottom left)");
+        play(b.dataset.sound, { exact: true });
+      });
+    });
 }
 
 // ---------- Header pills: fake delivery-app info that does dumb things ----------
@@ -576,9 +439,8 @@ async function boot() {
   renderTabs();
   renderGrid();
   renderHype();
-  renderBoard();
   renderCart();
-  setupWheel();
+  initHome({ config, dishes, board, openDish });
 
   $("#cat-tabs").addEventListener("click", (e) => {
     const b = e.target.closest(".cat");
@@ -595,7 +457,7 @@ async function boot() {
   $("#sort").addEventListener("change", (e) => {
     state.sort = e.target.value;
     renderGrid();
-    if (state.sort === "chaos") play("boom");
+    if (state.sort === "chaos") play("drama");
   });
   document.addEventListener("cart:change", renderCart);
   $("#cart-items").addEventListener("click", onCartClick);
@@ -610,7 +472,7 @@ async function boot() {
     if (!cartCount()) {
       e.preventDefault();
       toast("Your cart is empty. Delulu checkout 🙃", { error: true });
-      play("bruh");
+      play("crickets");
     }
   });
   $("#unc-btn").addEventListener("click", toggleUnc);
