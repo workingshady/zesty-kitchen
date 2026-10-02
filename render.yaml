@@ -3,9 +3,21 @@ services:
     name: zesty-kitchen
     runtime: node
     plan: free
+    region: frankfurt
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: SUPABASE_URL
+        value: https://ljoxpntcokygmqdcmyvs.supabase.co
+      - key: SESSION_SECRET
+        generateValue: true
+      # Render asks for these when you create the Blueprint; never commit them
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_PATH
+        sync: false
