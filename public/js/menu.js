@@ -110,9 +110,18 @@ function renderBoard() {
     ? `<div class="worst__face">${avatarHtml(board.worst)}<b dir="auto">${esc(board.worst.name_ar)}</b><span>${board.worst.orders} orders. L + ratio 💀</span><small>Nobody wants them. Be nice and order one? 🥺</small></div>`
     : "<p>Nobody's losing yet. Give it time 😈</p>";
   const top = board.top[0];
-  $("#hero-top").innerHTML = top
-    ? `<div class="hero__top">${avatarHtml(top)}<span dir="auto"><b>${esc(top.name_ar)}</b><br>${top.orders} orders. Main character energy. 🎬</span></div>`
+  const champ = top || dishes.find((d) => d.photo_url && !d.badges.includes("sold_out"));
+  $("#hero-top").innerHTML = champ
+    ? `<button class="champ" type="button" data-id="${champ.id}" aria-label="Open ${esc(champ.name_ar)}">
+        <span class="champ__photo">${champ.photo_url ? `<img src="${esc(champ.photo_url)}" alt="">` : `<span class="emoji-plate">🍽️</span>`}
+          <span class="champ__crown" aria-hidden="true">👑</span>
+          <span class="champ__count">${top ? `🔥 ${top.orders}× ordered` : "👀 up for grabs"}</span>
+        </span>
+        <span class="champ__name" dir="auto">${esc(champ.name_ar)}</span>
+        <span class="champ__sub">${top ? "Main character energy 🎬" : "The throne is empty. Order to crown someone 👑"}</span>
+      </button>`
     : "<p>Nobody yet. The throne is empty 👑<br>Your order decides who's #1.</p>";
+  $(".champ")?.addEventListener("click", (e) => openDish(e.currentTarget.dataset.id));
 }
 
 // ---------- Dish modal ----------

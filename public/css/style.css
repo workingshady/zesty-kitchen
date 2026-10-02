@@ -386,3 +386,13 @@ footer { padding: 30px 0 90px; text-align: center; color: var(--muted); font-siz
 .board li.board__empty { grid-template-columns: 1fr; }
 .totals span:last-child { white-space: nowrap; }
 .summary .totals { font-size: .85rem; }
+
+/* ---------- Hero champion (most ordered) ---------- */
+.champ { display: grid; gap: 6px; width: 100%; padding: 0; border: 0; background: none; text-align: center; cursor: pointer; }
+.champ__photo { position: relative; display: block; width: min(100%, 300px); aspect-ratio: 1 / 1; margin: 6px auto 0; border: var(--border); border-radius: 14px; overflow: hidden; background: var(--cream); box-shadow: var(--shadow); transform: rotate(-2deg); transition: transform .2s; }
+.champ:hover .champ__photo { transform: rotate(1deg) scale(1.03); }
+.champ__photo img { width: 100%; height: 100%; object-fit: cover; object-position: center 30%; }
+.champ__crown { position: absolute; top: -6px; left: 50%; transform: translateX(-50%) rotate(-12deg); font-size: 3rem; filter: drop-shadow(2px 2px 0 var(--ink)); animation: bob 1.2s ease-in-out infinite alternate; }
+.champ__count { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%) rotate(-3deg); padding: .15em .8em; border: 2px solid var(--ink); border-radius: 999px; background: var(--mustard); font-family: var(--font-ui); font-weight: 800; white-space: nowrap; box-shadow: 2px 2px 0 var(--ink); }
+.champ__name { font-family: var(--font-display); font-size: 1.8rem; line-height: 1.1; margin-top: 8px; }
+.champ__sub { font-family: var(--font-ui); font-size: .9rem; }
