@@ -149,7 +149,7 @@ $("#dish-form").addEventListener("submit", async (e) => {
     const file = f.photo.files[0];
     if (file) {
       const fd = new FormData();
-      fd.append("photo", file);
+      fd.append("photo", await shrink(file), "photo.jpg");
       await api(`/api/admin/dishes/${saved.id}/photo`, { method: "POST", body: fd });
     }
     $("#dish-dialog").close();
@@ -160,6 +160,21 @@ $("#dish-form").addEventListener("submit", async (e) => {
     $("#dish-save").disabled = false;
   }
 });
+
+// Phone photos are often 5+ MB; shrink to 1200px JPEG before upload (server limit is 4 MB)
+async function shrink(file, max = 1200) {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return await new Promise((resolve) => canvas.toBlob((b) => resolve(b || file), "image/jpeg", 0.85));
+  } catch {
+    return file; // unsupported format in this browser: let the server try
+  }
+}
 
 // ---- Reviews ----
 async function loadReviews() {

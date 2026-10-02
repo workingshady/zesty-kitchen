@@ -9,7 +9,7 @@ const auth = require("../auth");
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 4 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
     const ok = ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mimetype);
     cb(ok ? null : v.bad("Photo must be JPG, PNG, WebP or GIF"), ok);

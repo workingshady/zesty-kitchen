@@ -58,7 +58,8 @@ function createApp({ db, env = process.env }) {
     );
     const adminHtml = fs.readFileSync(path.join(VIEWS_DIR, "admin.html"), "utf8").replace("__ADMIN_PATH__", adminPath);
     app.get(`/${adminPath}`, (req, res) => res.set("X-Robots-Tag", "noindex").type("html").send(adminHtml));
-    app.get(`/${adminPath}/admin.js`, (req, res) => res.sendFile(path.join(VIEWS_DIR, "admin.js")));
+    const adminJs = fs.readFileSync(path.join(VIEWS_DIR, "admin.js"), "utf8");
+    app.get(`/${adminPath}/admin.js`, (req, res) => res.type("js").send(adminJs));
   } else {
     console.warn("ADMIN_PATH / ADMIN_PASSWORD not set: admin page disabled");
   }
@@ -71,14 +72,16 @@ function createApp({ db, env = process.env }) {
     });
   }
 
+  // On Vercel the CDN serves public/ and this is a no-op; locally it serves the pages
   app.use(express.static(PUBLIC_DIR, { maxAge: isProd ? "1h" : 0, extensions: ["html"] }));
 
   app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
-  app.use((req, res) => res.status(404).sendFile(path.join(PUBLIC_DIR, "404.html")));
+  const notFoundHtml = fs.readFileSync(path.join(PUBLIC_DIR, "404.html"), "utf8");
+  app.use((req, res) => res.status(404).type("html").send(notFoundHtml));
 
   app.use((err, req, res, next) => {
     const status = err.status || err.statusCode || 500;
-    if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "Photo is too big (max 5 MB)" });
+    if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "Photo is too big (max 4 MB)" });
     if (status >= 500) console.error(err);
     const message = status === 503 ? "The chef dropped the plate 🍽️💥 try again" : status < 500 ? err.message : "Something went wrong";
     res.status(status).json({ error: message });
