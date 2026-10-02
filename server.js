@@ -1,4 +1,4 @@
-const { createApp } = require("./src/app");
+const { createApp } = require("./src/create-app");
 const { createStore } = require("./src/db");
 
 const PORT = process.env.PORT || 3000;

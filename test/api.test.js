@@ -2,7 +2,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const request = require("supertest");
-const { createApp } = require("../src/app");
+const { createApp } = require("../src/create-app");
 const { createMemoryStore } = require("../src/db/memory");
 const { cleanText } = require("../src/filter");
 const auth = require("../src/auth");

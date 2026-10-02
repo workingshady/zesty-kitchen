@@ -3,7 +3,7 @@ const express = require("express");
 
 let app;
 try {
-  const { createApp } = require("./src/app");
+  const { createApp } = require("./src/create-app");
   const { createStore } = require("./src/db");
   app = createApp({ db: createStore() });
 } catch (err) {
