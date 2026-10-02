@@ -1,0 +1,67 @@
+/* Checkout step 4: funny-but-correct captcha challenges (see stepCaptcha in js/checkout.js) */
+.cap { display: grid; gap: 12px; }
+.cap__prompt { margin: 0; font-size: 1.1rem; line-height: 1.5; }
+.cap__prompt small { color: var(--muted); font-size: .9rem; }
+.cap__msg { font-weight: 700; min-height: 1.5em; margin: 12px 0 4px; }
+.cap-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.cap .captcha-grid { max-width: 420px; width: 100%; margin: 0 auto; }
+.cap .captcha-grid button > span { display: inline-block; line-height: 1; }
+.cap-input input { font-size: 1.3rem; }
+
+/* math */
+.cap-math { font-family: var(--font-display); font-size: clamp(1.8rem, 8vw, 2.6rem); text-align: center; padding: 12px; border: var(--border); border-radius: 12px; background: var(--cream); line-height: 1.3; }
+.cap-legend { display: block; font-family: var(--font-ui); font-size: 1rem; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+
+/* distorted word */
+.cap-word {
+  position: relative; overflow: hidden; display: flex; justify-content: center; align-items: center; gap: 2px; flex-wrap: wrap;
+  min-height: 110px; padding: 16px; border: var(--border); border-radius: 12px; user-select: none; -webkit-user-select: none;
+  font-family: var(--font-display); font-size: clamp(2.2rem, 10vw, 3.2rem); color: #3b2a8a; letter-spacing: .04em;
+  background:
+    repeating-linear-gradient(-35deg, transparent 0 9px, rgba(0, 0, 0, .07) 9px 11px),
+    radial-gradient(circle at 20% 30%, #ffe08a 0 20%, transparent 21%),
+    radial-gradient(circle at 80% 70%, #b9f0ff 0 25%, transparent 26%),
+    #f6f0ff;
+}
+.cap-word span { display: inline-block; text-shadow: 2px 2px 0 rgba(255, 105, 180, .55), -1px -1px 0 rgba(138, 206, 0, .6); }
+.cap-word::before, .cap-word::after { content: ""; position: absolute; left: -5%; right: -5%; height: 3px; background: var(--ink); opacity: .55; pointer-events: none; }
+.cap-word::before { top: 45%; transform: rotate(-7deg); }
+.cap-word::after { top: 60%; transform: rotate(5deg); }
+
+/* multiple choice */
+.cap-choices { display: grid; gap: 8px; }
+.cap-choice { display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 52px; border: 2px solid var(--ink); border-radius: 12px; background: var(--cream); cursor: pointer; font-size: 1.05rem; }
+.cap-choice input { width: 22px; height: 22px; flex: none; accent-color: var(--ketchup); }
+.cap-choice span { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cap-choice:has(input:checked) { background: var(--mustard); box-shadow: var(--shadow-sm); }
+.cap-choice:has(input:focus-visible) { outline: 3px solid var(--hot); outline-offset: 2px; }
+.cap-choice .avatar { width: 40px; height: 40px; border-radius: 10px; border: 2px solid var(--ink); object-fit: cover; display: inline-grid; place-items: center; }
+
+/* runaway "I'm not a robot" */
+.cap-robot { --robot-w: 210px; --robot-h: 72px; position: relative; height: 180px; border: 2px dashed var(--ink); border-radius: 12px; background: var(--cream); overflow: hidden; }
+.cap-robot__box {
+  position: absolute; left: calc((100% - var(--robot-w)) / 2); top: calc((100% - var(--robot-h)) / 2);
+  width: var(--robot-w); max-width: 100%; height: var(--robot-h); display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: #f9f9f9; border: 2px solid #cfcfcf; border-radius: 6px; box-shadow: 0 2px 4px rgba(0, 0, 0, .15); cursor: pointer;
+  font-family: Roboto, Arial, sans-serif; font-size: .95rem; line-height: 1.2; transition: left .25s, top .25s;
+}
+.cap-robot__box input { width: 26px; height: 26px; flex: none; accent-color: var(--slime); cursor: pointer; }
+.cap-robot__box small { color: var(--muted); }
+.cap-robot__logo { margin-inline-start: auto; font-size: 1.2rem; }
+.cap-robot__box:has(input:focus-visible) { outline: 3px solid var(--hot); outline-offset: 2px; }
+
+/* slide the chicken onto the plate */
+.cap-plate { position: relative; height: 70px; margin: 0 12px; border-bottom: 4px solid var(--ink); }
+.cap-plate__plate, .cap-plate__food { position: absolute; bottom: 0; transform: translateX(-50%); line-height: 1; pointer-events: none; }
+.cap-plate__plate { font-size: 3rem; }
+.cap-plate__food { font-size: 2.2rem; bottom: 18px; transition: left .05s; }
+#cap-range { margin: 0; }
+
+@media (max-width: 420px) {
+  .cap-robot { --robot-w: 190px; }
+  .cap .captcha-grid { gap: 6px; }
+  .cap .captcha-grid button { font-size: 2rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cap-robot__box, .cap-plate__food { transition: none; }
+}

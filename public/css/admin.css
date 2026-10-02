@@ -47,3 +47,88 @@ fieldset { border: 2px solid var(--ink); border-radius: 8px; margin: 0 0 10px; }
 .dish-list .tag { font-size: .72rem; padding: 0 .5em; border: 2px solid var(--ink); border-radius: 6px; background: var(--cream); }
 .stats-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .stats-row span { padding: .2em .8em; border: 2px solid var(--ink); border-radius: 999px; background: #fff; font-weight: 700; }
+
+/* ---- Dashboard upgrade ---- */
+h3 { font-family: "Lalezar", system-ui, sans-serif; font-weight: 400; font-size: 1.15rem; margin: 0 0 .5em; }
+body { overflow-x: hidden; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.state { color: var(--muted); padding: 14px; text-align: center; justify-content: center; flex-wrap: wrap; }
+.simple-list li.state, .dish-list li.state { border-style: dashed; }
+
+/* KPI cards */
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kpi { background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 10px 12px; box-shadow: 3px 3px 0 var(--ink); display: grid; gap: 2px; min-width: 0; }
+.kpi-label { font-size: .85rem; color: var(--muted); font-weight: 700; }
+.kpi-value { font-size: 1.45rem; line-height: 1.2; overflow-wrap: anywhere; }
+.kpi small { color: var(--muted); font-size: .8rem; }
+.ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ov-grid .card { padding: 14px; box-shadow: 3px 3px 0 var(--ink); min-width: 0; }
+@media (max-width: 720px) { .ov-grid { grid-template-columns: 1fr; } }
+
+/* Horizontal bars (top dishes) */
+.hbars { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hbars li { display: grid; grid-template-columns: minmax(0, 1fr) 2fr auto; gap: 8px; align-items: center; }
+.hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.hbar { height: 16px; border: 2px solid var(--ink); border-radius: 6px; background: var(--cream); overflow: hidden; }
+.hbar span { display: block; height: 100%; background: var(--mustard); border-inline-end: 2px solid var(--ink); }
+
+/* Vertical bars (orders per day) */
+.vbars { display: flex; align-items: flex-end; gap: 3px; height: 150px; padding-top: 4px; border-bottom: 2px solid var(--ink); }
+.vbar { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; padding-bottom: 18px; }
+.vbar-fill { width: 100%; max-width: 26px; min-height: 2px; background: var(--mustard); border: 2px solid var(--ink); border-bottom: 0; border-radius: 4px 4px 0 0; }
+.vbar-n { font-size: .72rem; font-weight: 700; }
+.vbar-day { position: absolute; bottom: 0; font-size: .7rem; color: var(--muted); }
+
+.mini-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.mini-list li { border-bottom: 2px dashed #e4d8c4; padding-bottom: 8px; }
+.mini-list li:last-child { border-bottom: 0; }
+.mini-list p { margin: 4px 0; overflow-wrap: anywhere; }
+.mini-list small { color: var(--muted); }
+.tag { display: inline-block; font-size: .72rem; padding: 0 .5em; border: 2px solid var(--ink); border-radius: 6px; background: var(--cream); }
+
+/* Toolbars, filters, bulk */
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.toolbar input[type=search] { flex: 2 1 220px; width: auto; }
+.toolbar select { flex: 1 1 150px; width: auto; }
+.bulkbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border: 2px dashed var(--ink); border-radius: 10px; background: #fff; margin-bottom: 8px; }
+.bulkbar label.inline { margin: 0 auto 0 0; font-weight: 700; }
+.pick { width: 18px; height: 18px; flex: none; accent-color: var(--ink); }
+.seg { display: inline-flex; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; background: #fff; }
+.seg-btn { font: inherit; border: 0; background: none; padding: .3em .9em; cursor: pointer; min-height: 38px; }
+.seg-btn + .seg-btn { border-inline-start: 2px solid var(--ink); }
+.seg-btn.active { background: var(--ink); color: var(--mustard); }
+
+/* Dish rows */
+.row-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.switch { display: inline-flex; flex-direction: row; align-items: center; gap: 4px; margin: 0; padding: .1em .6em; min-height: 34px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; cursor: pointer; font-weight: 700; }
+.switch input { accent-color: var(--ink); width: 16px; height: 16px; }
+.dish-list li.hidden-dish .switch { background: var(--cream); }
+.btn:focus-visible, .tab:focus-visible, .seg-btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--red); outline-offset: 2px; }
+
+/* Orders */
+details summary { cursor: pointer; list-style-position: outside; overflow-wrap: anywhere; }
+details summary small { display: block; color: var(--muted); }
+.order-items { margin: 6px 0; padding-inline-start: 18px; }
+.order-items li { overflow-wrap: anywhere; }
+.simple-list li { align-items: flex-start; }
+
+/* Toasts */
+.toasts { position: fixed; inset-inline: 12px; bottom: 12px; display: grid; justify-items: center; gap: 8px; z-index: 50; pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; max-width: min(460px, 100%); background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 8px 12px; box-shadow: 3px 3px 0 var(--ink); font-weight: 700; animation: toast-in .15s ease-out; }
+.toast.error { background: var(--red); color: #fff; }
+.toast .btn { flex: none; }
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+/* Phones */
+@media (max-width: 560px) {
+  main { padding: 12px; }
+  .dish-list li { flex-wrap: wrap; }
+  .dish-list .grow { flex-basis: calc(100% - 120px); }
+  .row-actions { width: 100%; justify-content: flex-start; }
+  .simple-list li { flex-wrap: wrap; }
+  .simple-list li > .btn { margin-inline-start: auto; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpi-value { font-size: 1.2rem; }
+  .handle { display: none; }
+}

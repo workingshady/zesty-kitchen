@@ -28,30 +28,80 @@
 
     <section id="panel" hidden>
       <nav class="tabs" role="tablist">
-        <button class="tab active" data-tab="dishes">🍽️ Dishes</button>
+        <button class="tab active" data-tab="overview">📊 Overview</button>
+        <button class="tab" data-tab="dishes">🍽️ Dishes</button>
         <button class="tab" data-tab="reviews">💬 Reviews</button>
         <button class="tab" data-tab="orders">🧾 Orders</button>
       </nav>
 
-      <div id="tab-dishes" class="tab-panel">
+      <div id="tab-overview" class="tab-panel">
+        <div class="row-between">
+          <h2>Overview</h2>
+          <button class="btn ghost small" id="refresh-overview">↻ Refresh</button>
+        </div>
+        <div id="overview"></div>
+      </div>
+
+      <div id="tab-dishes" class="tab-panel" hidden>
         <div class="row-between">
           <h2>Dishes</h2>
-          <button class="btn" id="new-dish">+ New dish</button>
+          <button class="btn" id="new-dish" title="Shortcut: n">+ New dish</button>
         </div>
-        <p class="hint">Drag rows to reorder. Changes save when you press Save.</p>
+        <div class="toolbar">
+          <input type="search" id="dish-search" placeholder="Search name, job title… ( / )" aria-label="Search dishes" dir="auto">
+          <select id="dish-cat" aria-label="Category"><option value="">All categories</option></select>
+          <select id="dish-vis" aria-label="Visibility">
+            <option value="">Visible + hidden</option>
+            <option value="visible">👁 Visible only</option>
+            <option value="hidden">🙈 Hidden only</option>
+          </select>
+        </div>
+        <div class="bulkbar">
+          <label class="inline"><input type="checkbox" id="dish-all"> <span id="dish-count">0 selected</span></label>
+          <button class="btn small ghost" data-bulk-dish="show" disabled>👁 Show</button>
+          <button class="btn small ghost" data-bulk-dish="hide" disabled>🙈 Hide</button>
+          <button class="btn small danger" data-bulk-dish="delete" disabled>Delete</button>
+        </div>
+        <p class="hint" id="dish-hint">Drag rows to reorder.</p>
         <ul id="dish-list" class="dish-list"></ul>
       </div>
 
       <div id="tab-reviews" class="tab-panel" hidden>
         <h2>Reviews</h2>
+        <div class="toolbar">
+          <input type="search" id="review-search" placeholder="Search text or name… ( / )" aria-label="Search reviews" dir="auto">
+          <select id="review-dish" aria-label="Dish"><option value="">All dishes</option></select>
+          <select id="review-sort" aria-label="Sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="lowest">Lowest 🌶️ first</option>
+            <option value="highest">Highest 🌶️ first</option>
+          </select>
+        </div>
+        <div class="bulkbar">
+          <label class="inline"><input type="checkbox" id="review-all"> <span id="review-count">0 selected</span></label>
+          <button class="btn small danger" id="review-bulk-delete" disabled>Delete selected</button>
+        </div>
         <ul id="review-list" class="simple-list"></ul>
       </div>
 
       <div id="tab-orders" class="tab-panel" hidden>
         <div class="row-between">
           <h2>Orders</h2>
-          <button class="btn danger" id="reset-board">Reset leaderboard</button>
+          <div class="btn-group">
+            <button class="btn ghost small" id="export-csv">⬇ Export CSV</button>
+            <button class="btn danger small" id="reset-board">Reset leaderboard</button>
+          </div>
         </div>
+        <div class="toolbar">
+          <input type="search" id="order-search" placeholder="Search customer, dish, #number… ( / )" aria-label="Search orders" dir="auto">
+          <div class="seg" role="group" aria-label="Date range">
+            <button class="seg-btn" data-range="today">Today</button>
+            <button class="seg-btn" data-range="7d">7 days</button>
+            <button class="seg-btn active" data-range="all">All</button>
+          </div>
+        </div>
+        <p class="hint" id="order-summary"></p>
         <ul id="order-list" class="simple-list"></ul>
       </div>
     </section>
@@ -95,6 +145,8 @@
       </div>
     </form>
   </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <script src="/__ADMIN_PATH__/admin.js" type="module"></script>
 </body>

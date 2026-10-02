@@ -24,6 +24,86 @@ const loginLimiter = rateLimit({
   message: { error: "Too many login attempts. Wait 15 minutes." },
 });
 
+const round2 = (n) => Math.round(n * 100) / 100;
+const dishLabel = (d) => d.name_en || d.name_ar;
+
+// "YYYY-MM-DD" in the admin's time zone, so "today" matches their wall clock
+function dayKeyer(tz) {
+  let fmt;
+  try {
+    fmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz || "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
+  } catch {
+    fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
+  }
+  return (date) => fmt.format(new Date(date));
+}
+
+// Dashboard numbers in one pass over orders and one over reviews
+function computeStats({ dishes, reviews, orders, tz, now = Date.now(), photoUrl }) {
+  const dayOf = dayKeyer(tz);
+  const today = dayOf(now);
+  const days = [];
+  for (let i = 13; i >= 0; i--) days.push(dayOf(now - i * 24 * 60 * 60 * 1000));
+  const perDay = new Map(days.map((d) => [d, 0]));
+
+  const qty = new Map();
+  const itemNames = new Map();
+  const payments = {};
+  let revenue = 0;
+  let ordersToday = 0;
+  for (const o of orders) {
+    const day = dayOf(o.created_at);
+    if (day === today) ordersToday++;
+    if (perDay.has(day)) perDay.set(day, perDay.get(day) + 1);
+    revenue += Number(o.total) || 0;
+    payments[o.payment_method] = (payments[o.payment_method] || 0) + 1;
+    for (const item of o.items || []) {
+      qty.set(item.dish_id, (qty.get(item.dish_id) || 0) + (Number(item.qty) || 0));
+      if (!itemNames.has(item.dish_id)) itemNames.set(item.dish_id, item.name_en || item.name_ar);
+    }
+  }
+
+  const byId = new Map(dishes.map((d) => [d.id, d]));
+  let chiliSum = 0;
+  for (const r of reviews) chiliSum += Number(r.chili_rating) || 0;
+
+  const visible = dishes.filter((d) => d.is_visible).length;
+  const attention = [];
+  for (const d of dishes) {
+    const issues = [];
+    if (!d.photo_path) issues.push("no_photo");
+    if (!String(d.description || "").trim()) issues.push("no_description");
+    if (!d.is_visible) issues.push("hidden");
+    if (issues.length) attention.push({ id: d.id, name_ar: d.name_ar, name_en: d.name_en || "", issues });
+  }
+
+  const topPayment = Object.entries(payments).sort((a, b) => b[1] - a[1])[0];
+  return {
+    total_orders: orders.length,
+    orders_today: ordersToday,
+    revenue: round2(revenue),
+    avg_order_value: orders.length ? round2(revenue / orders.length) : 0,
+    reviews_count: reviews.length,
+    avg_chili: reviews.length ? Math.round((chiliSum / reviews.length) * 10) / 10 : null,
+    dishes_total: dishes.length,
+    dishes_visible: visible,
+    dishes_hidden: dishes.length - visible,
+    dishes_without_photo: dishes.filter((d) => !d.photo_path).length,
+    top_dishes: [...qty.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id, n]) => {
+        const d = byId.get(id);
+        return { id, name: d ? dishLabel(d) : itemNames.get(id) || "?", deleted: !d, photo_url: d ? photoUrl(d.photo_path) : null, qty: n };
+      }),
+    orders_per_day: days.map((day) => ({ day, count: perDay.get(day) })),
+    payment_methods: payments,
+    top_payment_method: topPayment ? { method: topPayment[0], count: topPayment[1] } : null,
+    latest_reviews: reviews.slice(0, 5).map((r) => ({ ...r, dish_name: byId.has(r.dish_id) ? dishLabel(byId.get(r.dish_id)) : "?" })),
+    needs_attention: attention,
+  };
+}
+
 function dishFields(body, { partial }) {
   const b = body || {};
   const out = {};
@@ -74,9 +154,27 @@ function adminRouter(db, { password, sessionSecret, secureCookies }) {
     res.json({ ok: true });
   });
 
+  router.get("/stats", async (req, res) => {
+    const [dishes, reviews, orders] = await Promise.all([db.listDishes(), db.listReviews(), db.listOrders()]);
+    const tz = typeof req.query.tz === "string" ? req.query.tz.slice(0, 64) : undefined;
+    res.json(computeStats({ dishes, reviews, orders, tz, photoUrl: (p) => db.photoUrl(p) }));
+  });
+
   router.get("/dishes", async (req, res) => {
-    const dishes = await db.listDishes();
-    res.json(dishes.map((d) => ({ ...d, price: Number(d.price), photo_url: db.photoUrl(d.photo_path) })));
+    const [dishes, reviews, orders] = await Promise.all([db.listDishes(), db.listReviews(), db.listOrders()]);
+    const reviewCount = new Map();
+    for (const r of reviews) reviewCount.set(r.dish_id, (reviewCount.get(r.dish_id) || 0) + 1);
+    const orderQty = new Map();
+    for (const o of orders) for (const i of o.items || []) orderQty.set(i.dish_id, (orderQty.get(i.dish_id) || 0) + (Number(i.qty) || 0));
+    res.json(
+      dishes.map((d) => ({
+        ...d,
+        price: Number(d.price),
+        photo_url: db.photoUrl(d.photo_path),
+        review_count: reviewCount.get(d.id) || 0,
+        order_qty: orderQty.get(d.id) || 0,
+      })),
+    );
   });
 
   router.post("/dishes", async (req, res) => {
@@ -97,6 +195,23 @@ function adminRouter(db, { password, sessionSecret, secureCookies }) {
     const dish = await db.updateDish(req.params.id, dishFields(req.body, { partial: true }));
     if (!dish) return res.status(404).json({ error: "Dish not found" });
     res.json(dish);
+  });
+
+  // Copy without the photo (two dishes sharing one file would break when either is deleted). Starts hidden.
+  router.post("/dishes/:id/duplicate", async (req, res) => {
+    const src = await db.getDish(req.params.id);
+    if (!src) return res.status(404).json({ error: "Dish not found" });
+    const dishes = await db.listDishes();
+    const copy = (name, max) => (name ? `${name.slice(0, max - 7).trim()} (copy)` : "");
+    const fields = {
+      ...dishFields({ ...src, price: Number(src.price) }, { partial: false }),
+      name_ar: copy(src.name_ar, 60),
+      name_en: copy(src.name_en, 60),
+      is_visible: false,
+      sort_order: dishes.length,
+    };
+    const dish = await db.createDish(fields);
+    res.status(201).json({ ...dish, price: Number(dish.price), photo_url: null });
   });
 
   router.delete("/dishes/:id", async (req, res) => {
@@ -145,6 +260,12 @@ function adminRouter(db, { password, sessionSecret, secureCookies }) {
     res.json(await db.listOrders());
   });
 
+  router.delete("/orders/:id", async (req, res) => {
+    const ok = await db.deleteOrder(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Order not found" });
+    res.json({ ok: true });
+  });
+
   router.post("/leaderboard/reset", async (req, res) => {
     const since = new Date().toISOString();
     await db.setSetting("leaderboard_since", since);
@@ -154,4 +275,4 @@ function adminRouter(db, { password, sessionSecret, secureCookies }) {
   return router;
 }
 
-module.exports = { adminRouter };
+module.exports = { adminRouter, computeStats };

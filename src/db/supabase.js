@@ -71,6 +71,10 @@ function createSupabaseStore({ url, secretKey }) {
       if (since) q = q.gte("created_at", since);
       return unwrap(await q);
     },
+    async deleteOrder(id) {
+      if (!isUuid(id)) return false;
+      return unwrap(await sb.from("orders").delete().eq("id", id).select("id")).length > 0;
+    },
     async getSetting(key) {
       const row = unwrap(await sb.from("settings").select("value").eq("key", key).maybeSingle());
       return row ? row.value : null;

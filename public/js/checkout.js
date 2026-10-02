@@ -156,36 +156,314 @@ function stepTime() {
   });
 }
 
-// 4. Captcha: "Select all images with X". Every tile is X.
+// 4. Captcha: a random funny challenge with REAL right/wrong logic. Two misses and we let you in anyway.
+const shuffle = (list) => {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+const rand = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
+const toLatinDigits = (s) => String(s).replace(/[٠-٩]/g, (c) => c.charCodeAt(0) - 0x0660).replace(/[۰-۹]/g, (c) => c.charCodeAt(0) - 0x06f0);
+// Forgiving compare: case, spaces, tashkeel/tatweel, أ/إ/آ→ا, ى→ي, ة→ه, Arabic digits→Latin
+const norm = (s) =>
+  toLatinDigits(s)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[ً-ٰٟـ]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/\s+/g, " ")
+    .trim();
+const radios = (opts) =>
+  `<div class="cap-choices" role="radiogroup" aria-label="Answers">${opts
+    .map((o, i) => `<label class="cap-choice"><input type="radio" name="cap-pick" value="${i}"><span dir="auto">${o}</span></label>`)
+    .join("")}</div>`;
+const pickedRadio = (box) => {
+  const r = $("[name=cap-pick]:checked", box);
+  return r ? Number(r.value) : null;
+};
+
+const FOOD_EMOJI = [
+  ["🍗", "فراخ", "chicken"], ["🧆", "طعمية", "falafel"], ["🥙", "شاورما", "shawarma"], ["🍚", "رز", "rice"], ["🌯", "راب", "wrap"],
+  ["🦐", "جمبري", "shrimp"], ["🍲", "ملوخية", "molokhia"], ["🫘", "فول", "foul"], ["🐟", "سمك", "fish"], ["🥖", "عيش", "bread"],
+];
+const FOOD_WORDS = ["كشري 🍝 Koshary", "فول 🫘 Foul", "طعمية 🧆 Ta'meya", "ملوخية 🍲 Molokhia", "محشي 🫑 Mahshi", "حواوشي 🥙 Hawawshi", "بسبوسة 🍰 Basbousa", "فطير مشلتت 🥞 Feteer"];
+const NOT_FOOD = ["📊 The Q3 Excel sheet", "🖨️ The office printer", "📅 The 9am standup", "📧 A reply-all email", "🔌 The HDMI cable nobody has", "💼 Your KPIs", "🪑 Your manager's chair"];
+const CAPTCHA_WORDS = ["اشطا", "يسطا", "فكك", "قشطة", "عاش", "skibidi", "aura", "rizz", "sheesh", "habibi"];
+const PRAISE = ["Verified. 100% human, 0% robot, 67% brainrot ✅", "Correct. Aura +1000 🔥", "عاش يا وحش 🫡 human confirmed", "Sheesh. Not a robot. Probably. 🤖❌"];
+
+// Each challenge: { id, ok(dishes) -> available?, render(box, dishes, msg) -> { check() -> true | "praise text" | false | null (nothing answered yet), hint, empty } }
+const CHALLENGES = [
+  {
+    id: "faces",
+    ok: () => true,
+    render(box, dishes) {
+      const withPhoto = dishes.filter((d) => d.photo_url);
+      const star = pick(withPhoto);
+      const others = withPhoto.filter((d) => d.photo_url !== star?.photo_url); // same photo twice would make it unfair
+      const tiles = [];
+      const hits = new Set(shuffle([...Array(9).keys()]).slice(0, rand(2, 4)));
+      const spin = () => `transform:rotate(${pick([0, 0, 90, 180, -12, 15, 270])}deg) scale(${(1 + Math.random() * 0.6).toFixed(2)})`;
+      const emojiTile = (f) => ({ html: `<span style="${spin()}">${f[0]}</span>`, name: f[2] });
+      let label;
+      if (others.length) {
+        label = `<span dir="auto">${esc(star.name_ar)}</span>`;
+        const face = (d) => ({ html: `<img src="${esc(d.photo_url)}" alt="" style="${spin()}">`, name: d.name_en || d.name_ar });
+        for (let i = 0; i < 9; i++) tiles.push(hits.has(i) ? face(star) : Math.random() < 0.65 ? face(pick(others)) : emojiTile(pick(FOOD_EMOJI)));
+      } else {
+        // Not enough photos: emoji version
+        const food = pick(FOOD_EMOJI);
+        const decoys = FOOD_EMOJI.filter((f) => f !== food);
+        label = `${food[0]} <span dir="auto">${food[1]}</span> / ${food[2]}`;
+        for (let i = 0; i < 9; i++) tiles.push(emojiTile(hits.has(i) ? food : pick(decoys)));
+      }
+      box.innerHTML = `<p class="cap__prompt"><strong>Select ALL squares with ${label}</strong><br><small>Tap every square they're in, then Verify. Yes, even the rotated ones 👀</small></p>
+        <div class="captcha-grid">${tiles
+          .map((t, i) => `<button type="button" aria-pressed="false" aria-label="Tile ${i + 1}: ${esc(t.name)}" data-i="${i}">${t.html}</button>`)
+          .join("")}</div>`;
+      $(".captcha-grid", box).addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (b) b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true"));
+      });
+      return {
+        empty: "Pick at least one square. We KNOW you know who it is 👀",
+        hint: `Wrong 💀 They were in tiles ${[...hits].sort((a, b) => a - b).map((i) => i + 1).join(", ")}.`,
+        check() {
+          const sel = $$("[aria-pressed=true]", box).map((b) => Number(b.dataset.i));
+          if (!sel.length) return null;
+          return sel.length === hits.size && sel.every((i) => hits.has(i));
+        },
+      };
+    },
+  },
+  {
+    id: "math",
+    ok: () => true,
+    render(box) {
+      let question;
+      let answer;
+      let meme = false;
+      if (Math.random() < 0.35) {
+        question = "6 + 7 = ?";
+        answer = 13;
+        meme = true;
+      } else {
+        const values = shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        const items = shuffle(["🧆", "🫘", "🥖", "🧅", "🌶️"]).slice(0, 3).map((e, i) => [e, values[i]]);
+        const terms = Array.from({ length: rand(3, 4) }, () => pick(items));
+        answer = terms.reduce((s, t) => s + t[1], 0);
+        question = `<span class="cap-legend">${items.map(([e, v]) => `${e} = ${v}`).join(" · ")}</span>${terms.map((t) => t[0]).join(" + ")} = ?`;
+      }
+      box.innerHTML = `<p class="cap__prompt"><strong>حل المسألة / Solve this</strong><br><small>Egyptian food math 🧮 No calculator, the chef is watching.</small></p>
+        <div class="cap-math" dir="ltr">${question}</div>
+        <label class="field cap-input">Your answer / إجابتك <input id="cap-answer" type="text" inputmode="numeric" autocomplete="off" maxlength="6"></label>`;
+      return {
+        empty: "Type a number first. Any number. Please 🙏",
+        hint: `It was ${answer}. Math is hard, we get it 🧮💀`,
+        check() {
+          const v = norm($("#cap-answer", box).value);
+          if (!v) return null;
+          if (meme && v === "67") return "6️⃣7️⃣ Wrong math, correct aura. Allowed.";
+          return Number(v) === answer;
+        },
+      };
+    },
+  },
+  {
+    id: "word",
+    ok: () => true,
+    render(box) {
+      const word = pick(CAPTCHA_WORDS);
+      // Arabic letters must stay joined, so Arabic is warped as one piece; Latin gets per-letter chaos.
+      const art = /[؀-ۿ]/.test(word)
+        ? `<span class="cap-word__ar" style="transform:rotate(${rand(-10, 10)}deg) skewX(${rand(-20, 20)}deg)">${esc(word)}</span>`
+        : [...word].map((c) => `<span style="transform:translateY(${rand(-8, 8)}px) rotate(${rand(-30, 30)}deg);font-size:${rand(90, 140)}%">${esc(c)}</span>`).join("");
+      box.innerHTML = `<p class="cap__prompt"><strong>اكتب الكلمة / Type the word you see</strong><br><small>Not case-sensitive. أ or ا, we don't judge.</small></p>
+        <div class="cap-word" aria-hidden="true" dir="auto">${art}</div>
+        <span class="cap-sr">The word is: ${esc(word)}</span>
+        <label class="field cap-input">The word / الكلمة <input id="cap-answer" type="text" dir="auto" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20"></label>`;
+      return {
+        empty: "Type something. Even 'idk' is a vibe 🤷",
+        hint: `It said "${word}". Glasses check 👓`,
+        check() {
+          const v = norm($("#cap-answer", box).value);
+          if (!v) return null;
+          return v === norm(word);
+        },
+      };
+    },
+  },
+  {
+    id: "notfood",
+    ok: () => true,
+    render(box, dishes) {
+      const foods = shuffle(FOOD_WORDS).slice(0, 3);
+      if (dishes.length && Math.random() < 0.6) foods[0] = `${esc(pick(dishes).name_ar)} (on the menu, so… food 💀)`;
+      const titled = dishes.filter((d) => d.job_title);
+      const odd = titled.length && Math.random() < 0.5 ? `💼 ${esc(pick(titled).job_title)}` : pick(NOT_FOOD);
+      const opts = shuffle([...foods, odd]);
+      const right = opts.indexOf(odd);
+      box.innerHTML = `<p class="cap__prompt"><strong>أنهي واحدة مش أكل؟ / Which one is NOT food?</strong></p>${radios(opts)}`;
+      return {
+        empty: "Pick one. It's multiple choice, not a personality test 🙄",
+        hint: `"${opts[right].replace(/&#39;/g, "'").replace(/&[a-z]+;/g, "")}" is not food. Unless you're HR.`,
+        check: () => {
+          const p = pickedRadio(box);
+          return p === null ? null : p === right;
+        },
+      };
+    },
+  },
+  {
+    id: "robot",
+    ok: () => true,
+    render(box, _dishes, msg) {
+      let dodges = 0;
+      box.innerHTML = `<p class="cap__prompt"><strong>Just tick the box.</strong> Easy. Trust 🙂</p>
+        <div class="cap-robot"><label class="cap-robot__box"><input type="checkbox" id="robot-cb"><span>I'm not a robot<br><small>مش روبوت والله</small></span><span class="cap-robot__logo" aria-hidden="true">🤖🚫</span></label></div>`;
+      const lab = $(".cap-robot__box", box);
+      const cb = $("#robot-cb", box);
+      const dodge = () => {
+        dodges++;
+        lab.style.left = `calc((100% - var(--robot-w)) * ${Math.random().toFixed(2)})`;
+        lab.style.top = `calc((100% - var(--robot-h)) * ${Math.random().toFixed(2)})`;
+        msg(dodges === 1 ? "Nope 🏃💨 too slow" : "Almost 😏 one more time…");
+        play(dodges === 1 ? "what" : "goofy");
+      };
+      lab.addEventListener("pointerenter", (e) => e.pointerType === "mouse" && dodges < 2 && dodge());
+      // Covers clicks, taps and Space: the first 2 attempts dodge, then it behaves.
+      cb.addEventListener("click", (e) => {
+        if (dodges < 2) {
+          e.preventDefault();
+          dodge();
+        } else if (cb.checked) msg("OK fine. It's checked. Now press Verify ✅");
+      });
+      return {
+        empty: "Tick the box first 🙄 (it stops running eventually, promise)",
+        hint: "",
+        check: () => (cb.checked ? "Checkbox caught. Human behaviour detected 🧍✅" : null),
+      };
+    },
+  },
+  {
+    id: "plate",
+    ok: () => true,
+    render(box) {
+      const target = rand(25, 90);
+      box.innerHTML = `<p class="cap__prompt"><strong>حط الفرخة في الطبق / Slide the 🍗 onto the 🍽️ plate</strong><br><small>Precision. Aura. Don't drop it.</small></p>
+        <div class="cap-plate" aria-hidden="true"><span class="cap-plate__plate" style="left:${target}%">🍽️</span><span class="cap-plate__food" style="left:0%">🍗</span></div>
+        <input type="range" id="cap-range" min="0" max="100" value="0" aria-label="Chicken position. The plate is at ${target} percent">`;
+      const range = $("#cap-range", box);
+      range.addEventListener("input", () => {
+        $(".cap-plate__food", box).style.left = `${range.value}%`;
+        range.setAttribute("aria-valuetext", `${range.value} percent`);
+      });
+      return {
+        empty: "The chicken hasn't moved. Slide it 👉",
+        hint: `Chicken on the floor 💀 the plate was at ${target}%.`,
+        check() {
+          const v = Number(range.value);
+          if (v === 0) return null;
+          return Math.abs(v - target) <= 6;
+        },
+      };
+    },
+  },
+  {
+    id: "salary",
+    ok: (dishes) => new Set(dishes.filter((d) => d.price > 0).map((d) => d.price)).size >= 2,
+    render(box, dishes) {
+      const seen = new Set();
+      const opts = shuffle(dishes.filter((d) => d.price > 0))
+        .filter((d) => !seen.has(d.price) && seen.add(d.price)) // unique prices, so exactly one right answer
+        .slice(0, 4);
+      const rich = Math.random() < 0.5;
+      const best = opts.reduce((a, d) => ((rich ? d.price > a.price : d.price < a.price) ? d : a));
+      box.innerHTML = `<p class="cap__prompt"><strong>${rich ? "Select the coworker with the BIGGEST salary 💸" : "Select the most UNDERPAID coworker 😭"}</strong><br><small>Salary = menu price. HR leaked it. Robots can't read prices (trust).</small></p>
+        ${radios(opts.map((d) => `${avatarHtml(d)} <b>${esc(d.name_ar)}</b> <small dir="ltr">${egp(d.price)}</small>`))}`;
+      return {
+        empty: "Pick a coworker. Bas the right one 👀",
+        hint: `It was ${best.name_ar} (${egp(best.price)}). Read the price habibi.`,
+        check: () => {
+          const p = pickedRadio(box);
+          return p === null ? null : opts[p] === best;
+        },
+      };
+    },
+  },
+];
+const CHILL_CAPTCHA = {
+  id: "chill",
+  render(box) {
+    box.innerHTML = `<p class="cap__prompt">رايق mode: no puzzle. Just press <b>Verify</b>. You're human, we believe you 🫶</p>`;
+    return { check: () => "رايق verified 🫡 human enough" };
+  },
+};
+
 async function stepCaptcha() {
+  const dishes = (await getDishes()).filter((d) => !d.badges?.includes("sold_out"));
+  if (current !== 3) return; // user moved on while dishes were loading
   let fails = 0;
-  const dishes = (await getDishes()).filter((d) => !d.badges.includes("sold_out"));
-  const star = dishes.find((d) => d.photo_url) || dishes[0];
+  let lastId = null;
+  let active;
   panel(
     "🤖 إنت بني آدم؟ / Are you human?",
-    `<p><strong>Select ALL squares with <span dir="auto">${esc(star?.name_ar || "the coworker who microwaves fish 🐟")}</span></strong></p>
-     <div class="captcha-grid">${Array.from({ length: 9 }, (_, i) => `<button type="button" aria-pressed="false" aria-label="Tile ${i + 1}">${star?.photo_url ? `<img src="${esc(star.photo_url)}" alt="" style="transform:rotate(${(i % 3) * 90}deg) scale(${1 + (i % 2) * 0.3})">` : ["🐟", "🍗", "🥙", "🍚", "🌯", "🦐", "🧆", "🍲", "🫕"][i]}</button>`).join("")}</div>
-     <p id="cap-msg" aria-live="polite" style="font-weight:700"></p>`,
+    `<div class="cap" id="cap"></div>
+     <p id="cap-msg" class="cap__msg" aria-live="polite"></p>
+     ${calm() ? "" : `<button class="tiny-link" type="button" id="cap-new">🔄 غيّرها / different challenge</button>`}`,
     `${backBtn()}${nextBtn("Verify ✅")}`,
   );
   bindBack();
-  $(".captcha-grid").addEventListener("click", (e) => {
-    const b = e.target.closest("button");
-    if (b) b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true"));
+  const box = $("#cap");
+  const msg = (text) => ($("#cap-msg").textContent = text);
+  const load = (note = "") => {
+    const pool = calm() ? [CHILL_CAPTCHA] : CHALLENGES.filter((c) => c.ok(dishes));
+    const ch = pick(pool.length > 1 ? pool.filter((c) => c.id !== lastId) : pool);
+    lastId = ch.id;
+    box.dataset.type = ch.id;
+    active = ch.render(box, dishes, msg);
+    msg(note);
+  };
+  load();
+  // Drop the "answer first" nag as soon as they start answering
+  ["input", "change"].forEach((ev) => box.addEventListener(ev, () => $("#cap-msg").textContent === active.empty && msg("")));
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.matches("input[type=text]")) {
+      e.preventDefault();
+      $("#next").click();
+    }
+  });
+  $("#cap-new")?.addEventListener("click", () => {
+    load("New challenge. Same vibes 🔄");
+    $("input, button", box)?.focus();
   });
   $("#next").addEventListener("click", () => {
-    const picked = $$(".captcha-grid [aria-pressed=true]").length;
-    if (calm() || fails >= 1 || picked === 9) {
-      toast(picked === 9 ? "Correct. It was them ALL ALONG 😱" : "Verified. You're human enough 🫡");
+    const result = active.check();
+    if (result === null) {
+      play("bruh");
+      return msg(active.empty);
+    }
+    if (result) {
       play("boom");
+      toast(typeof result === "string" ? result : pick(PRAISE));
       return go(4);
     }
     fails++;
-    $("#cap-msg").textContent = picked ? `Wrong. They're in ALL 9 squares. Look again 👀` : "Pick at least one. We know you know who it is 👀";
-    $(".captcha-grid").classList.remove("shake");
-    void $(".captcha-grid").offsetWidth;
-    $(".captcha-grid").classList.add("shake");
     play("buzzer");
+    box.classList.remove("shake");
+    void box.offsetWidth;
+    box.classList.add("shake");
+    if (fails >= 2) {
+      $("#next").disabled = true;
+      msg(`${active.hint} …whatever, close enough.`);
+      toast("Close enough, you're 67% human 🤖➡️🧍 بس متتعودش");
+      return setTimeout(() => current === 3 && go(4), 1200);
+    }
+    load(`❌ ${active.hint} Here's a new one.`);
   });
 }
 

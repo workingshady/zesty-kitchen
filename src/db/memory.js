@@ -6,7 +6,7 @@ function createMemoryStore({ seed = true } = {}) {
   const now = () => new Date().toISOString();
   let dishes = seed ? SEED_DISHES.map((d, i) => ({ ...d, id: crypto.randomUUID(), photo_path: null, is_visible: true, sort_order: i, created_at: now() })) : [];
   let reviews = [];
-  const orders = [];
+  let orders = [];
   const settings = new Map();
   const photos = new Map();
   let orderCounter = 1000;
@@ -71,6 +71,11 @@ function createMemoryStore({ seed = true } = {}) {
     },
     async listOrders(since) {
       return newestFirst(since ? orders.filter((o) => o.created_at >= since) : orders);
+    },
+    async deleteOrder(id) {
+      const before = orders.length;
+      orders = orders.filter((o) => o.id !== id);
+      return orders.length < before;
     },
     async getSetting(key) {
       return settings.has(key) ? settings.get(key) : null;

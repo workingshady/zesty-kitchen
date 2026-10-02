@@ -117,3 +117,81 @@ test("replacing a photo keeps the new one and removes the old one", async () => 
   assert.equal((await request(app).get(second.body.photo_url)).status, 200);
   assert.equal((await request(app).get(first.body.photo_url)).status, 404);
 });
+
+// Signs the cookie directly: the login route is rate limited (5 per 15 min) across the whole test run
+function adminAgent(app) {
+  return request.agent(app).set("Cookie", `${auth.COOKIE_NAME}=${auth.createToken(env.SESSION_SECRET)}`);
+}
+
+test("admin can delete a single order; unknown ids give 404", async () => {
+  const { app, db } = setup();
+  const [dish] = await db.listDishes();
+  const order = await db.createOrder({ customer_name: "A", items: [{ dish_id: dish.id, qty: 1 }], subtotal: 1, fees: [], total: 1, payment_method: "vibes" });
+  const keep = await db.createOrder({ customer_name: "B", items: [], subtotal: 1, fees: [], total: 1, payment_method: "vibes" });
+  assert.equal((await request(app).delete(`/api/admin/orders/${order.id}`)).status, 401);
+  const agent = adminAgent(app);
+  assert.equal((await agent.delete(`/api/admin/orders/${order.id}`)).status, 200);
+  assert.equal((await agent.delete(`/api/admin/orders/${order.id}`)).status, 404);
+  const left = await db.listOrders();
+  assert.deepEqual(left.map((o) => o.id), [keep.id]);
+});
+
+test("duplicating a dish makes a hidden copy without touching the original or its photo", async () => {
+  const { app, db } = setup();
+  const [dish] = await db.listDishes();
+  await db.updateDish(dish.id, { photo_path: "x/y.webp", name_en: "A".repeat(60) });
+  const agent = adminAgent(app);
+  const res = await agent.post(`/api/admin/dishes/${dish.id}/duplicate`);
+  assert.equal(res.status, 201);
+  assert.notEqual(res.body.id, dish.id);
+  assert.equal(res.body.is_visible, false);
+  assert.equal(res.body.photo_path, null);
+  assert.ok(res.body.name_en.endsWith(" (copy)") && res.body.name_en.length <= 60);
+  assert.equal(res.body.price, Number(dish.price));
+  const original = await db.getDish(dish.id);
+  assert.equal(original.is_visible, true);
+  assert.equal(original.photo_path, "x/y.webp");
+  assert.equal((await agent.post("/api/admin/dishes/nope/duplicate")).status, 404);
+});
+
+test("admin stats count orders, revenue, top dishes and the 14-day chart", async () => {
+  const { app, db } = setup();
+  const [a, b] = await db.listDishes();
+  const send = (dish, qty, payment_method) =>
+    request(app).post("/api/orders").send({ customer_name: "X", payment_method, items: [{ dish_id: dish.id, size: "half", addons: [], qty }] });
+  const totals = [];
+  for (const [dish, qty, pay] of [[a, 1, "vibes"], [b, 3, "insults"], [b, 1, "insults"]]) totals.push((await send(dish, qty, pay)).body.total);
+  await db.createReview({ dish_id: a.id, author_name: "R", chili_rating: 4, awkward_rating: 1, body: "ok" });
+  await db.createReview({ dish_id: a.id, author_name: "S", chili_rating: 1, awkward_rating: 1, body: "meh" });
+  await db.updateDish(b.id, { is_visible: false });
+
+  const agent = adminAgent(app);
+  assert.equal((await request(app).get("/api/admin/stats")).status, 401);
+  const res = await agent.get("/api/admin/stats").query({ tz: "Not/AZone" });
+  assert.equal(res.status, 200);
+  const s = res.body;
+  assert.equal(s.total_orders, 3);
+  assert.equal(s.orders_today, 3);
+  assert.equal(s.revenue, Math.round(totals.reduce((x, y) => x + y, 0) * 100) / 100);
+  assert.equal(s.avg_order_value, Math.round((s.revenue / 3) * 100) / 100);
+  assert.equal(s.top_dishes[0].id, b.id);
+  assert.equal(s.top_dishes[0].qty, 4);
+  assert.equal(s.top_payment_method.method, "insults");
+  assert.equal(s.reviews_count, 2);
+  assert.equal(s.avg_chili, 2.5);
+  assert.equal(s.dishes_hidden, 1);
+  assert.equal(s.orders_per_day.length, 14);
+  assert.equal(s.orders_per_day.at(-1).count, 3);
+  assert.ok(s.needs_attention.some((d) => d.id === b.id && d.issues.includes("hidden")));
+});
+
+test("admin dish list includes review and order counts", async () => {
+  const { app, db } = setup();
+  const [a] = await db.listDishes();
+  await request(app).post("/api/orders").send({ customer_name: "X", payment_method: "vibes", items: [{ dish_id: a.id, size: "half", addons: [], qty: 2 }] });
+  await db.createReview({ dish_id: a.id, author_name: "R", chili_rating: 4, awkward_rating: 1, body: "ok" });
+  const agent = adminAgent(app);
+  const row = (await agent.get("/api/admin/dishes")).body.find((d) => d.id === a.id);
+  assert.equal(row.order_qty, 2);
+  assert.equal(row.review_count, 1);
+});

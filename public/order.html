@@ -9,40 +9,175 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@400;700;800&family=Cairo:wght@400;700&family=Lalezar&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/order.css">
 </head>
 <body>
   <header class="header">
     <div class="wrap header__row">
       <a class="logo" href="/"><span id="chef-slot"></span><span class="logo__name">Zesty Kitchen <small>live tracking (lies)</small></span></a>
+      <span class="ot-live pill" aria-hidden="true"><span class="ot-live__dot"></span> LIVE</span>
     </div>
   </header>
 
-  <main class="wrap" style="max-width:820px">
-    <section class="panel" style="margin-top:20px">
-      <h1 id="title">Order placed 🎉</h1>
-      <p id="eta">ETA: 25–35 years</p>
-      <div class="tracker" id="tracker" aria-live="polite"></div>
-      <p id="status-text" aria-live="polite"></p>
-      <svg class="office-map" viewBox="0 0 400 240" role="img" aria-label="Map of the office with your courier wandering around">
-        <rect x="0" y="0" width="400" height="240" fill="#fff"/>
-        <g stroke="#111" stroke-width="3" fill="#fff4e0">
-          <rect x="10" y="10" width="120" height="90" rx="6"/>
-          <rect x="140" y="10" width="120" height="90" rx="6"/>
-          <rect x="270" y="10" width="120" height="90" rx="6" fill="#ffc700"/>
-          <rect x="10" y="140" width="180" height="90" rx="6"/>
-          <rect x="210" y="140" width="180" height="90" rx="6" fill="#ff69b4"/>
-        </g>
-        <g font-family="Baloo Bhaijaan 2, sans-serif" font-size="13" fill="#111" text-anchor="middle">
-          <text x="70" y="60">🍳 Kitchen</text>
-          <text x="200" y="60">☕ Coffee corner</text>
-          <text x="330" y="60">📊 Meeting room</text>
-          <text x="100" y="190">🧑‍💼 HR</text>
-          <text x="300" y="190">🪑 Desk #4 (you)</text>
-        </g>
-        <text id="courier" x="70" y="120" font-size="28" text-anchor="middle">🛵</text>
-      </svg>
-      <div class="panel__actions"><a class="btn white" href="/">← Order more coworkers</a><a class="btn red" href="/#leaderboard">🏆 Leaderboard</a></div>
+  <main class="wrap ot">
+    <!-- ETA hero -->
+    <section class="ot-hero panel" aria-labelledby="ot-title">
+      <div class="ot-hero__top">
+        <div>
+          <p class="ot-kicker">طلب رقم · Order</p>
+          <h1 id="ot-title" class="ot-num">#<span id="order-num">????</span></h1>
+        </div>
+        <div class="ot-eta" id="eta-box">
+          <p class="ot-kicker">Arriving in · هيوصل كمان</p>
+          <p class="ot-eta__time" id="eta-time">25:00</p>
+          <p class="ot-eta__note" id="eta-note">Estimated (by vibes)</p>
+        </div>
+      </div>
+      <ol class="ot-bar" id="progress-bar" aria-hidden="true"></ol>
+      <p class="ot-status" id="status-text" role="status" aria-live="polite">Order received. The kitchen is pretending to be busy…</p>
     </section>
+
+    <!-- Delivered (hidden until the end) -->
+    <section class="ot-done panel" id="done" hidden aria-labelledby="done-title">
+      <div class="ot-done__head">
+        <div class="ot-stamp" aria-hidden="true">DELIVERED<small>(emotionally)</small></div>
+        <div>
+          <h2 id="done-title">وصل! Delivered (emotionally) ✅</h2>
+          <p id="done-text">Your coworker has arrived at Desk #4. Please do not make eye contact.</p>
+        </div>
+      </div>
+      <div class="ot-done__grid">
+        <div class="ot-rate">
+          <h3>قيّم زميلك · Rate your coworker</h3>
+          <div class="ot-chilis" id="chilis" role="group" aria-label="Rate your coworker from 1 to 5 chilies"></div>
+          <p class="ot-rate__hint">Ratings are anonymous. HR can still see them.</p>
+        </div>
+        <div class="ot-receipt" id="receipt" aria-label="Receipt"></div>
+      </div>
+      <div class="panel__actions ot-done__actions">
+        <a class="btn big" href="/">🍗 Order again</a>
+        <a class="btn red" href="/#leaderboard">🏆 Leaderboard</a>
+        <form class="ot-track" id="track-form">
+          <label class="sr-only" for="track-input">Order number to track</label>
+          <input id="track-input" inputmode="numeric" pattern="[0-9]{1,8}" placeholder="Order #" required>
+          <button class="btn white" type="submit">🔎 Track another</button>
+        </form>
+      </div>
+    </section>
+
+    <div class="ot-grid">
+      <!-- Map -->
+      <section class="ot-map-card panel" aria-labelledby="map-title">
+        <div class="ot-card-head">
+          <h2 id="map-title">📍 Live map</h2>
+          <span class="pill">GPS accuracy: ±3 floors</span>
+        </div>
+        <div class="ot-map" id="map">
+          <svg viewBox="0 0 400 300" role="img" aria-label="Office map: the courier wanders between the kitchen, coffee corner, meeting room, HR, the bathroom queue and Desk 4">
+            <rect x="0" y="0" width="400" height="300" fill="#fffdf6"/>
+            <!-- corridor -->
+            <rect x="6" y="104" width="388" height="92" fill="#e9dcc6" stroke="#111" stroke-width="2" stroke-dasharray="6 6"/>
+            <text x="200" y="154" font-size="11" fill="#5b5146" text-anchor="middle" font-family="Baloo Bhaijaan 2, sans-serif">THE CORRIDOR · الطرقة (no WiFi)</text>
+            <g stroke="#111" stroke-width="3">
+              <rect x="8" y="8" width="124" height="92" rx="8" fill="#ffc700"/>
+              <rect x="138" y="8" width="114" height="92" rx="8" fill="#c8b39a"/>
+              <rect x="258" y="8" width="134" height="92" rx="8" fill="#7fd3ff"/>
+              <rect x="8" y="200" width="114" height="92" rx="8" fill="#fff4e0"/>
+              <rect x="128" y="200" width="114" height="92" rx="8" fill="#d6f5a8"/>
+              <rect x="248" y="200" width="144" height="92" rx="8" fill="#ff69b4" class="ot-map__desk"/>
+            </g>
+            <!-- doors -->
+            <g fill="#fffdf6">
+              <rect x="56" y="96" width="28" height="8"/><rect x="181" y="96" width="28" height="8"/><rect x="311" y="96" width="28" height="8"/>
+              <rect x="51" y="196" width="28" height="8"/><rect x="171" y="196" width="28" height="8"/><rect x="306" y="196" width="28" height="8"/>
+            </g>
+            <!-- furniture -->
+            <g stroke="#111" stroke-width="2">
+              <rect x="285" y="40" width="80" height="24" rx="12" fill="#fff"/>
+              <rect x="268" y="232" width="56" height="30" rx="4" fill="#fff"/>
+            </g>
+            <g font-family="Baloo Bhaijaan 2, sans-serif" fill="#111" text-anchor="middle">
+              <text x="70" y="34" font-size="13" font-weight="700">🍳 Kitchen</text>
+              <text x="70" y="50" font-size="10">المطبخ · smells like drama</text>
+              <text x="195" y="34" font-size="13" font-weight="700">☕ Coffee corner</text>
+              <text x="195" y="50" font-size="10">ركن الشاي</text>
+              <text x="325" y="30" font-size="13" font-weight="700">📊 Meeting room</text>
+              <text x="325" y="88" font-size="9">could've been an email</text>
+              <text x="65" y="226" font-size="13" font-weight="700">🧑‍💼 HR</text>
+              <text x="65" y="242" font-size="10">الموارد البشرية</text>
+              <text x="185" y="226" font-size="12" font-weight="700">🚽 Bathroom queue</text>
+              <text x="185" y="270" font-size="13">🧍🧍🧍🧍</text>
+              <text x="296" y="252" font-size="11">💻</text>
+              <text x="355" y="226" font-size="13" font-weight="700">🪑 Desk #4</text>
+              <text x="355" y="242" font-size="10">(you) مكتب ٤</text>
+              <text x="355" y="275" font-size="18" class="ot-map__pin">📍</text>
+            </g>
+            <!-- planned vs actual route -->
+            <polyline class="ot-route-plan" points="70,60 70,150 320,150 320,245" fill="none" stroke="#111" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round" opacity=".45"/>
+            <polyline id="trail" points="" fill="none" stroke="#fa4b13" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>
+          </svg>
+          <div class="ot-courier" id="courier" aria-hidden="true">
+            <span class="ot-courier__bubble" id="bubble" hidden></span>
+            <span class="ot-courier__emoji" id="courier-emoji">🛵</span>
+          </div>
+        </div>
+        <p class="ot-map__legend"><span class="ot-key ot-key--plan"></span> planned route · <span class="ot-key ot-key--real"></span> what actually happened</p>
+      </section>
+
+      <!-- Courier -->
+      <section class="ot-courier-card panel" aria-labelledby="courier-name">
+        <div class="ot-person">
+          <div class="ot-person__face" aria-hidden="true">🧔🏽</div>
+          <div>
+            <p class="ot-kicker">Your courier · الطيار</p>
+            <h2 id="courier-name" dir="auto">كابتن حمادة 🛵</h2>
+            <p class="ot-rating"><span aria-hidden="true">⭐</span> 4.2 <small>(67 ratings, 66 from his mom)</small></p>
+          </div>
+        </div>
+        <dl class="ot-facts">
+          <div><dt>Vehicle</dt><dd>Office chair with wheels 🪑</dd></div>
+          <div><dt>Plate · اللوحة</dt><dd><span class="ot-plate" dir="rtl">مكتب ٤</span></dd></div>
+          <div><dt>Deliveries</dt><dd>3 (2 arrived)</dd></div>
+        </dl>
+        <div class="ot-row">
+          <button class="btn white" type="button" id="call-courier">📞 Call courier</button>
+          <button class="btn pink" type="button" id="open-chat">💬 Chat</button>
+        </div>
+      </section>
+
+      <!-- Dish -->
+      <section class="ot-dish panel" aria-labelledby="dish-name">
+        <div class="ot-dish__photo" id="dish-photo"><span class="ot-dish__ph" aria-hidden="true">🍽️</span></div>
+        <div class="ot-dish__body">
+          <p class="ot-kicker">Your order · طلبك</p>
+          <h2 id="dish-name" dir="auto">Loading coworker…</h2>
+          <p id="dish-meta" class="ot-dish__meta"></p>
+          <p id="dish-quote" class="ot-dish__quote" dir="auto"></p>
+        </div>
+      </section>
+
+      <!-- Timeline -->
+      <section class="ot-timeline panel" aria-labelledby="tl-title">
+        <h2 id="tl-title">🧾 Order timeline</h2>
+        <ol class="ot-steps" id="steps"></ol>
+      </section>
+
+      <!-- Chat -->
+      <section class="ot-chat panel" aria-labelledby="chat-title">
+        <div class="ot-card-head">
+          <h2 id="chat-title">💬 Chat with كابتن حمادة</h2>
+          <span class="pill" id="chat-presence">🟢 online (lying)</span>
+        </div>
+        <div class="ot-chat__log" id="chat-log" role="log" aria-live="polite" aria-label="Chat messages with the courier"></div>
+        <p class="ot-typing" id="typing" hidden>كابتن حمادة is typing<span aria-hidden="true">…</span></p>
+        <div class="ot-quick" id="quick" aria-label="Quick replies"></div>
+        <form class="ot-chat__form" id="chat-form">
+          <label class="sr-only" for="chat-input">Message the courier</label>
+          <input id="chat-input" maxlength="140" autocomplete="off" placeholder="اكتب رسالة… type a message" dir="auto">
+          <button class="btn" type="submit" aria-label="Send message">➤</button>
+        </form>
+      </section>
+    </div>
   </main>
 
   <script src="/js/order.js" type="module"></script>
