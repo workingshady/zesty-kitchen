@@ -1,0 +1,62 @@
+{
+  "_comment": "Fixed lines pre-recorded as natural voices. Run: python scripts/gen-voices.py (needs: pip install edge-tts). The site plays these instead of the robotic browser voice.",
+  "lines": [
+    {
+      "text": "اشطا يا باشا",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "عاش يا وحش",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "فل الفل",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "قشطة",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "صباح الخير",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "ألو؟ أيوه يا باشا، معاك أكلك",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "بص، أنا وصلت مكتب ٤ بس انت مش موجود",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "والطيار سابني ونزل يشرب شاي",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "وأنا حاسس إني اتاكلت كتير النهارده",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "خلاص، أنا سايب نفسي على الكيبورد بتاعك. باي 🙏",
+      "voice": "ar-EG-ShakirNeural"
+    },
+    {
+      "text": "يا باشا متقلقش، مسكته تاني. أنا جاي حالاً",
+      "voice": "ar-EG-ShakirNeural",
+      "rate": "+0%"
+    },
+    {
+      "text": "sheeeeeesh",
+      "voice": "en-US-GuyNeural",
+      "rate": "-20%",
+      "speak": "sheeeeesh"
+    },
+    {
+      "text": "tung tung tung sahur",
+      "voice": "en-US-GuyNeural",
+      "rate": "-10%",
+      "pitch": "-15Hz"
+    }
+  ]
+}

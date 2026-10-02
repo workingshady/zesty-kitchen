@@ -329,7 +329,10 @@ async function postReview(e, dishId) {
 
 async function onReviewClick(e) {
   const voice = e.target.closest(".voice");
-  if (voice) return say(voice.dataset.say, { pitch: pick([0.1, 2]), rate: pick([0.7, 1.4]), arabic: /[؀-ۿ]/.test(voice.dataset.say), force: true });
+  if (voice) {
+    voice.textContent = "🔊 playing…";
+    return say(voice.dataset.say, { force: true, interrupt: true }).then(() => (voice.textContent = "▶️ voice note"));
+  }
   const btn = e.target.closest(".react");
   if (!btn) return;
   btn.disabled = true;

@@ -72,56 +72,102 @@
           <h2 id="map-title">📍 Live map</h2>
           <span class="pill">GPS accuracy: ±3 floors</span>
         </div>
-        <div class="ot-map" id="map">
-          <svg viewBox="0 0 400 300" role="img" aria-label="Office map: the courier wanders between the kitchen, coffee corner, meeting room, HR, the bathroom queue and Desk 4">
-            <rect x="0" y="0" width="400" height="300" fill="#fffdf6"/>
-            <!-- corridor -->
-            <rect x="6" y="104" width="388" height="92" fill="#e9dcc6" stroke="#111" stroke-width="2" stroke-dasharray="6 6"/>
-            <text x="200" y="154" font-size="11" fill="#5b5146" text-anchor="middle" font-family="Baloo Bhaijaan 2, sans-serif">THE CORRIDOR · الطرقة (no WiFi)</text>
-            <g stroke="#111" stroke-width="3">
-              <rect x="8" y="8" width="124" height="92" rx="8" fill="#ffc700"/>
-              <rect x="138" y="8" width="114" height="92" rx="8" fill="#c8b39a"/>
-              <rect x="258" y="8" width="134" height="92" rx="8" fill="#7fd3ff"/>
-              <rect x="8" y="200" width="114" height="92" rx="8" fill="#fff4e0"/>
-              <rect x="128" y="200" width="114" height="92" rx="8" fill="#d6f5a8"/>
-              <rect x="248" y="200" width="144" height="92" rx="8" fill="#ff69b4" class="ot-map__desk"/>
-            </g>
-            <!-- doors -->
-            <g fill="#fffdf6">
-              <rect x="56" y="96" width="28" height="8"/><rect x="181" y="96" width="28" height="8"/><rect x="311" y="96" width="28" height="8"/>
-              <rect x="51" y="196" width="28" height="8"/><rect x="171" y="196" width="28" height="8"/><rect x="306" y="196" width="28" height="8"/>
-            </g>
-            <!-- furniture -->
-            <g stroke="#111" stroke-width="2">
-              <rect x="285" y="40" width="80" height="24" rx="12" fill="#fff"/>
-              <rect x="268" y="232" width="56" height="30" rx="4" fill="#fff"/>
-            </g>
-            <g font-family="Baloo Bhaijaan 2, sans-serif" fill="#111" text-anchor="middle">
-              <text x="70" y="34" font-size="13" font-weight="700">🍳 Kitchen</text>
-              <text x="70" y="50" font-size="10">المطبخ · smells like drama</text>
-              <text x="195" y="34" font-size="13" font-weight="700">☕ Coffee corner</text>
-              <text x="195" y="50" font-size="10">ركن الشاي</text>
-              <text x="325" y="30" font-size="13" font-weight="700">📊 Meeting room</text>
-              <text x="325" y="88" font-size="9">could've been an email</text>
-              <text x="65" y="226" font-size="13" font-weight="700">🧑‍💼 HR</text>
-              <text x="65" y="242" font-size="10">الموارد البشرية</text>
-              <text x="185" y="226" font-size="12" font-weight="700">🚽 Bathroom queue</text>
-              <text x="185" y="270" font-size="13">🧍🧍🧍🧍</text>
-              <text x="296" y="252" font-size="11">💻</text>
-              <text x="355" y="226" font-size="13" font-weight="700">🪑 Desk #4</text>
-              <text x="355" y="242" font-size="10">(you) مكتب ٤</text>
-              <text x="355" y="275" font-size="18" class="ot-map__pin">📍</text>
-            </g>
-            <!-- planned vs actual route -->
-            <polyline class="ot-route-plan" points="70,60 70,150 320,150 320,245" fill="none" stroke="#111" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round" opacity=".45"/>
-            <polyline id="trail" points="" fill="none" stroke="#fa4b13" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".75"/>
-          </svg>
-          <div class="ot-courier" id="courier" aria-hidden="true">
-            <span class="ot-courier__bubble" id="bubble" hidden></span>
-            <span class="ot-courier__emoji" id="courier-emoji">🛵</span>
+        <div class="ot-mapctl" role="toolbar" aria-label="Map controls">
+          <div class="ot-mapctl__zoom">
+            <button class="btn white ot-mapctl__z" type="button" id="map-zoom-out" aria-label="Zoom out">−</button>
+            <span class="ot-mapctl__lvl" id="map-zoom-lvl" aria-hidden="true">1×</span>
+            <button class="btn white ot-mapctl__z" type="button" id="map-zoom-in" aria-label="Zoom in">+</button>
           </div>
+          <button class="btn white" type="button" id="map-follow" aria-pressed="false">📍 Follow courier</button>
+          <button class="btn pink" type="button" id="map-where">🍔 Where is my food?</button>
         </div>
-        <p class="ot-map__legend"><span class="ot-key ot-key--plan"></span> planned route · <span class="ot-key ot-key--real"></span> what actually happened</p>
+        <div class="ot-map" id="map" role="img" aria-label="Live office map: the courier rides an office chair from the kitchen through the corridor, past the coffee corner, meeting room, lift, HR and the bathroom queue, towards you at Desk 4">
+          <div class="ot-map__stage" id="map-stage">
+            <svg viewBox="0 0 400 300" aria-hidden="true" focusable="false">
+              <defs>
+                <mask id="plan-reveal" maskUnits="userSpaceOnUse" x="0" y="0" width="400" height="300">
+                  <polyline class="ot-route-reveal" points="70,60 70,150 320,150 320,215 332,258" pathLength="1" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+                </mask>
+              </defs>
+              <rect x="0" y="0" width="400" height="300" fill="#fffdf6"/>
+              <!-- corridor -->
+              <rect x="6" y="104" width="388" height="92" fill="#e9dcc6" stroke="#111" stroke-width="2" stroke-dasharray="6 6"/>
+              <text x="215" y="134" font-size="11" fill="#5b5146" text-anchor="middle" font-family="Baloo Bhaijaan 2, sans-serif">THE CORRIDOR · الطرقة (no WiFi)</text>
+              <!-- lift -->
+              <g class="ot-map__lift">
+                <rect x="10" y="118" width="26" height="64" rx="4" fill="#d4d4d4" stroke="#111" stroke-width="2"/>
+                <line x1="23" y1="122" x2="23" y2="178" stroke="#111" stroke-width="1.5"/>
+                <text x="23" y="114" font-size="9" text-anchor="middle" font-family="Baloo Bhaijaan 2, sans-serif" fill="#111">🛗 lift</text>
+                <text x="23" y="192" font-size="7" text-anchor="middle" font-family="Baloo Bhaijaan 2, sans-serif" fill="#5b5146">(haunted)</text>
+              </g>
+              <g stroke="#111" stroke-width="3">
+                <rect x="8" y="8" width="124" height="92" rx="8" fill="#ffc700"/>
+                <rect x="138" y="8" width="114" height="92" rx="8" fill="#c8b39a"/>
+                <rect x="258" y="8" width="134" height="92" rx="8" fill="#7fd3ff"/>
+                <rect x="8" y="200" width="114" height="92" rx="8" fill="#fff4e0"/>
+                <rect x="128" y="200" width="114" height="92" rx="8" fill="#d6f5a8"/>
+                <rect x="248" y="200" width="144" height="92" rx="8" fill="#ff69b4" class="ot-map__desk"/>
+              </g>
+              <!-- doors -->
+              <g fill="#fffdf6">
+                <rect x="56" y="96" width="28" height="8"/><rect x="181" y="96" width="28" height="8"/><rect x="311" y="96" width="28" height="8"/>
+                <rect x="51" y="196" width="28" height="8"/><rect x="171" y="196" width="28" height="8"/><rect x="306" y="196" width="28" height="8"/>
+              </g>
+              <!-- furniture -->
+              <g stroke="#111" stroke-width="2">
+                <rect x="285" y="40" width="80" height="24" rx="12" fill="#fff"/>
+                <rect x="268" y="232" width="56" height="30" rx="4" fill="#fff"/>
+              </g>
+              <g font-family="Baloo Bhaijaan 2, sans-serif" fill="#111" text-anchor="middle">
+                <text x="70" y="34" font-size="13" font-weight="700">🍳 Kitchen</text>
+                <text x="70" y="50" font-size="10">المطبخ · smells like drama</text>
+                <text x="195" y="34" font-size="13" font-weight="700">☕ Coffee corner</text>
+                <text x="195" y="50" font-size="10">ركن الشاي</text>
+                <text x="325" y="30" font-size="13" font-weight="700">📊 Meeting room</text>
+                <text x="325" y="88" font-size="9">could've been an email</text>
+                <text x="65" y="226" font-size="13" font-weight="700">🧑‍💼 HR</text>
+                <text x="65" y="242" font-size="10">الموارد البشرية</text>
+                <text x="185" y="226" font-size="12" font-weight="700">🚽 Bathroom queue</text>
+                <g class="ot-queue" id="bath-queue" font-size="13">
+                  <text x="142" y="272">🧍</text><text x="158" y="272">🧍</text><text x="174" y="272">🧍</text><text x="190" y="272">🧍</text>
+                </g>
+                <text x="296" y="252" font-size="11">💻</text>
+                <text x="355" y="226" font-size="13" font-weight="700">🪑 Desk #4</text>
+                <text x="355" y="242" font-size="10">(you) مكتب ٤</text>
+              </g>
+              <!-- planned route (draws itself in), route left, what actually happened -->
+              <polyline class="ot-route-plan" mask="url(#plan-reveal)" points="70,60 70,150 320,150 320,215 332,258" fill="none" stroke="#111" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round" opacity=".45"/>
+              <polyline class="ot-route-left" id="route-left" points="" fill="none" stroke="#2b8fd6" stroke-width="3" stroke-dasharray="7 6" stroke-linecap="round" stroke-linejoin="round"/>
+              <polyline id="trail-under" points="" fill="none" stroke="#fffdf6" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+              <polyline id="trail" points="" fill="none" stroke="#fa4b13" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/>
+            </svg>
+            <div class="ot-fx" id="map-fx" aria-hidden="true"></div>
+            <div class="ot-you" id="you-pin" aria-hidden="true">
+              <span class="ot-you__ring"></span><span class="ot-you__ring ot-you__ring--2"></span>
+              <span class="ot-you__pin">📍</span>
+              <span class="ot-you__label">you (hungry)</span>
+            </div>
+            <div class="ot-courier" id="courier" aria-hidden="true">
+              <span class="ot-courier__beam"></span>
+              <span class="ot-courier__bubble" id="bubble" hidden></span>
+              <span class="ot-courier__emoji" id="courier-emoji">🛵</span>
+              <span class="ot-etachip" id="eta-chip">…</span>
+            </div>
+          </div>
+          <div class="ot-gps" id="gps" aria-hidden="true">
+            <span class="ot-gps__bars" id="gps-bars" data-level="3"><i></i><i></i><i></i><i></i></span>
+            <span class="ot-gps__text" id="gps-text">GPS: strong-ish</span>
+          </div>
+          <div class="ot-mapflash" id="map-flash" aria-hidden="true" hidden></div>
+        </div>
+        <p class="ot-map__caption" id="map-status" role="status" aria-live="polite">Courier is in the kitchen, emotionally preparing.</p>
+        <dl class="ot-mapstats" aria-label="Live courier stats">
+          <div><dt>📏 Distance left</dt><dd id="stat-dist">— desks</dd></div>
+          <div><dt>💨 Speed</dt><dd id="stat-speed">0 km/h · parked</dd></div>
+          <div><dt>🛑 Stops made</dt><dd id="stat-stops">0</dd></div>
+          <div><dt>🔋 His battery</dt><dd id="stat-batt">23%</dd></div>
+        </dl>
+        <p class="ot-map__legend"><span><span class="ot-key ot-key--plan"></span> planned</span> <span><span class="ot-key ot-key--left"></span> route left</span> <span><span class="ot-key ot-key--real"></span> what actually happened</span></p>
       </section>
 
       <!-- Courier -->
