@@ -1,5 +1,5 @@
 // Fake tracker: goes backwards once, courier wanders the office, then the dish calls you.
-import { $, api, esc, toast, sfx, calm, initCommon, chefHtml } from "./common.js";
+import { $, api, esc, toast, play, calm, initCommon, chefHtml } from "./common.js";
 
 const STAGES = [
   ["👨‍🍳", "Preparing", "بيتجهز"],
@@ -52,14 +52,19 @@ async function incomingCall() {
       </div>
     </div>`;
   document.body.append(el);
-  sfx.add();
+  const ringtone = play("ring", { loop: true });
+  const stopRing = () => ringtone?.pause();
   $("#accept").focus();
   const close = () => el.remove();
   $("#decline").addEventListener("click", () => {
+    stopRing();
+    play("getout");
     close();
     toast("You declined your own food. Bold. 💀");
   });
   $("#accept").addEventListener("click", () => {
+    stopRing();
+    play("sad");
     $("#call-text").innerHTML = `<span dir="auto">"It's me, ${esc(name)}. I'm not coming. I have a meeting. 🙏"</span>`;
     $("#accept").remove();
     $("#decline").textContent = "😭";

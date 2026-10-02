@@ -68,7 +68,7 @@ function onQty(e) {
     plusTrolled = true;
     delta = -1;
     toast("Oops, the + button is left-handed. Try again 🙃");
-    play("bruh");
+    play("what");
   }
   line.qty = Math.min(9, Math.max(1, line.qty + delta));
   saveCart(cart);
@@ -185,7 +185,7 @@ async function stepCaptcha() {
     $(".captcha-grid").classList.remove("shake");
     void $(".captcha-grid").offsetWidth;
     $(".captcha-grid").classList.add("shake");
-    play("faah");
+    play("buzzer");
   });
 }
 
@@ -211,14 +211,14 @@ function stepTip() {
       slider.value = 2;
       $("#tip").textContent = stops[2];
       toast("Tip snapped back to 67%. The algorithm has spoken 6️⃣7️⃣");
-      play("boom");
+      play("what");
     }, 600);
   });
   $("#hr").addEventListener("change", (e) => {
     if (calm()) return;
     e.target.checked = true;
     toast("HR said no. HR always says no 🙅");
-    play("bruh");
+    play("no");
   });
   setupScratch();
   $("#next").addEventListener("click", () => go(5));
@@ -245,7 +245,7 @@ function setupScratch() {
     if (!revealed && Math.random() < 0.04) {
       revealed = true;
       setTimeout(() => {
-        play("sad");
+        play("care");
         toast("كوبون: فكّك. 0% off. Skill issue 💀");
       }, 600);
     }
@@ -272,7 +272,7 @@ function stepPay() {
   bindBack();
   $("#no-btn")?.addEventListener("click", () => {
     toast("You clicked NO. Respect. But you still have to pay 💅");
-    play("bruh");
+    play("no");
   });
   $("#next").addEventListener("click", () => {
     const m = $("[name=pay]:checked");
@@ -354,15 +354,15 @@ async function place() {
       await set(35, "Calculating your regret…", 700);
       await set(72, "Asking HR for permission…", 700);
       await set(99, "Almost there… 99%…", 1200);
-      play("ohno");
+      play("what");
       await set(12, "Oops. Starting over. Skill issue (ours) 😭", 1100);
       await set(67, "6️⃣7️⃣…", 600);
     }
     const result = await request;
     await set(100, `Order #${result.order_number} placed. عاش يا وحش 🫡`, 300);
     saveCart([]);
-    play("airhorn");
-    say("عاش يا وحش، الأوردر وصل", { arabic: true });
+    play("ka");
+    setTimeout(() => play("laugh"), 900);
     if (!calm() && window.JSConfetti) {
       await new JSConfetti().addConfetti({ emojis: ["🍗", "🌯", "🍚", "🌶️", "🍋", "💅", "🫘"], emojiSize: 60, confettiNumber: 90 });
     }

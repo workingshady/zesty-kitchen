@@ -88,10 +88,42 @@ export function toast(message, { error = false, ms = 3200, html = false, cls = "
   setTimeout(() => t.remove(), ms);
 }
 
-// ---------- meme sounds (synthesized + browser voice; no audio files) ----------
-// Sound is ON by default. Browsers only allow audio after the first click/tap, so nothing autoplays.
+// ---------- meme sounds: real clips in /sounds + a few synthesized ones ----------
+// Sound is ON by default and only the 🔊 button turns it off (رايق mode no longer mutes).
+// Browsers only allow audio after the first click/tap, so nothing autoplays.
 let ac = null;
-export const soundOn = () => store.get("zk_sound", true) && !isChill();
+export const soundOn = () => store.get("zk_sound", true);
+
+// name -> file in public/sounds
+export const CLIPS = {
+  faah: ["faaah", "😱 FAAAH"],
+  boom: ["vine-boom", "💥 Vine boom"],
+  bruh: ["bruh", "😐 Bruh"],
+  getout: ["get-out", "🚪 Get out!"],
+  ka: ["apple-pay", "💳 Apple Pay"],
+  ring: ["phone-ringing", "📱 Your phone ringing"],
+  back: ["back-in-the-day", "👴 Back in the day"],
+  sad: ["sad-violin", "🎻 Sad violin"],
+  buzzer: ["wrong-buzzer", "❌ Wrong buzzer"],
+  no: ["how-about-no", "🙅 How about no"],
+  what: ["wait-what", "🤨 Wait what"],
+  goofy: ["goofy-laugh", "🤪 Goofy laugh"],
+  laugh: ["sitcom-laugh", "😂 Sitcom laugh"],
+  cap: ["stop-the-cap", "🧢 Stop the cap"],
+  sideeye: ["side-eye", "👀 Side eye"],
+  care: ["we-do-not-care", "🤷 We do not care"],
+  ahhh: ["ahhh", "😫 AHHHH"],
+};
+const clipCache = {};
+function playClip(name, { loop = false, volume = 0.8 } = {}) {
+  const base = (clipCache[name] ||= new Audio(`/sounds/${CLIPS[name][0]}.mp3`));
+  const a = base.paused ? base : base.cloneNode();
+  a.loop = loop;
+  a.volume = volume;
+  a.currentTime = 0;
+  a.play().catch(() => {});
+  return a;
+}
 const ctx = () => {
   ac ||= new (window.AudioContext || window.webkitAudioContext)();
   if (ac.state === "suspended") ac.resume();
@@ -166,32 +198,27 @@ export function say(text, { pitch = 1, rate = 1, arabic = false, force = false }
 
 const SOUNDS = {
   pop: () => tone({ from: 600, to: 1400, dur: 0.08, gain: 0.25 }),
-  boom: () => { tone({ from: 110, to: 40, dur: 0.7, gain: 0.9 }); noise({ dur: 0.03, gain: 0.4 }); },
-  faah: () => {
-    say("faaaaaaah", { pitch: 0.4, rate: 0.6 });
-    tone({ type: "sawtooth", from: 420, to: 180, dur: 0.9, gain: 0.12, filter: { type: "bandpass", freq: 1200 } });
-  },
-  bruh: () => say("bruh", { pitch: 0.1, rate: 0.7 }),
   sheesh: () => say("sheeeeeesh", { pitch: 1.2, rate: 0.5 }),
   ohno: () => [659, 659, 523, 440].forEach((f, i) => tone({ type: "square", from: f, dur: 0.15, at: i * 0.17, gain: 0.08 })),
   airhorn: () => [0, 0.33, 0.66].concat(1).forEach((at, i) =>
     [466, 470, 233].forEach((f) => tone({ type: "sawtooth", from: f, dur: i === 3 ? 0.8 : 0.25, at, gain: 0.07, filter: { type: "highpass", freq: 300 } })),
   ),
-  sad: () => [392, 370, 349, 330].forEach((f, i) => tone({ type: "triangle", from: f, dur: i === 3 ? 1.2 : 0.45, at: i * 0.47, gain: 0.18 })),
-  error: () => { tone({ from: 659, dur: 0.12, gain: 0.18 }); tone({ from: 494, dur: 0.3, at: 0.13, gain: 0.18 }); },
+  error: () => playClip("buzzer", { volume: 0.5 }),
   pipe: () => { [520, 1347, 2210, 3390].forEach((f) => tone({ from: f, dur: 1.5, gain: 0.08 })); noise({ dur: 0.02, gain: 0.5 }); },
   tung: () => { [0, 0.25, 0.5].forEach((at) => tone({ from: 80, to: 50, dur: 0.3, at, gain: 0.8 })); setTimeout(() => say("tung tung tung sahur", { pitch: 0.3, rate: 0.8 }), 800); },
   win: () => [523, 659, 784, 1047].forEach((f, i) => tone({ type: "square", from: f, dur: 0.12, at: i * 0.11, gain: 0.08 })),
   ashta: () => say(pick(["اشطا يا باشا", "عاش يا وحش", "فل الفل", "قشطة"]), { arabic: true, rate: 1.1 }),
 };
 
-export function play(name) {
-  if (!soundOn()) return;
+export function play(name, opts) {
+  if (!soundOn()) return null;
   try {
+    if (CLIPS[name]) return playClip(name, opts);
     SOUNDS[name]?.();
   } catch {
     /* audio not available */
   }
+  return null;
 }
 // Back-compat helpers used across pages
 export const sfx = { add: () => play("pop"), error: () => play("error"), win: () => play("airhorn") };
@@ -238,6 +265,15 @@ export function totalsHtml(cart) {
     <div class="grand"><span>Total / الإجمالي</span><span>${egp(total)}</span></div>`;
 }
 
+// Adaptive photo: near-square photos fill the frame; very wide/tall ones show whole on a blurred copy.
+export const fitImg = (url, alt = "") =>
+  `<span class="fit"><img class="fit__bg" src="${esc(url)}" alt="" aria-hidden="true"><img class="fit__img" src="${esc(url)}" alt="${esc(alt)}" loading="lazy" data-fit></span>`;
+function smartFit(img) {
+  const r = img.naturalWidth / img.naturalHeight;
+  img.closest(".fit")?.classList.toggle("fit--contain", r > 1.3 || r < 0.77);
+}
+document.addEventListener("load", (e) => e.target.matches?.("img[data-fit]") && smartFit(e.target), true);
+
 export const avatarHtml = (d, cls = "avatar") => (d?.photo_url ? `<img class="${cls}" src="${esc(d.photo_url)}" alt="">` : `<span class="${cls}">🍽️</span>`);
 
 // ---------- floating controls (labeled so people know what they do) ----------
@@ -245,7 +281,7 @@ function mountFloaters() {
   const box = document.createElement("div");
   box.className = "floaters";
   box.innerHTML = `
-    <button class="btn white chill-btn" type="button" aria-pressed="${isChill()}" title="Turns OFF all the annoying stuff: runaway buttons, fake captchas, sounds, animations">
+    <button class="btn white chill-btn" type="button" aria-pressed="${isChill()}" title="Turns OFF the annoying stuff: runaway buttons, fake captchas, tip snapping, animations">
       😩 <span class="label"></span>
     </button>
     <button class="btn white sound-btn" type="button" aria-pressed="${soundOn()}" title="Meme sounds (FAAAH, vine boom, airhorn…) when you click stuff">
@@ -266,7 +302,7 @@ function mountFloaters() {
     store.set("zk_chill", next);
     document.documentElement.classList.toggle("chill-on", next);
     paint();
-    toast(next ? "رايق mode: no more chaos, no sounds. Weak, but valid 🫡" : "Chaos is back. Good luck habibi 😈");
+    toast(next ? "رايق mode: no more chaos. Weak, but valid 🫡 (sounds stay on, use 🔊 to mute)" : "Chaos is back. Good luck habibi 😈");
   });
   soundBtn.addEventListener("click", () => {
     store.set("zk_sound", !store.get("zk_sound", true));
@@ -350,7 +386,7 @@ function idleDvd() {
     dvd?.remove();
     dvd = null;
     clearTimeout(timer);
-    timer = setTimeout(start, 60_000);
+    timer = setTimeout(start, 15_000);
   };
   async function start() {
     if (calm() || document.hidden) return stop();
@@ -424,7 +460,7 @@ export function toggleUnc() {
   document.documentElement.classList.toggle("unc-on", next);
   store.set("zk_unc", next);
   if (next) {
-    say("صباح الخير", { arabic: true });
+    play("back");
     toast("👴 Unc mode: صباح الخير 🌹 Comic Sans activated");
   }
 }

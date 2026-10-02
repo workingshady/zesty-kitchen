@@ -22,9 +22,9 @@
         <span class="logo__name">Zesty Kitchen <small>مطبخ زيستي · since standup</small></span>
       </a>
       <div class="header__meta">
-        <span class="pill hide-sm">📍 Desk #4 🪑</span>
-        <span class="pill hide-sm">⏱️ 25–35 years</span>
-        <span class="pill">⭐ 4.9 (2.3k)</span>
+        <button class="pill hide-sm" type="button" id="pill-desk" title="Delivery address. Click to change it (HR will know)">📍 Desk #4 🪑</button>
+        <button class="pill hide-sm" type="button" id="pill-eta" title="Estimated delivery time. Click to recalculate (it won't help)">⏱️ 25–35 years</button>
+        <button class="pill" type="button" id="pill-rating" title="Our totally real rating. Click to leave feedback">⭐ 4.9 (2.3k)</button>
         <button class="btn red cart-btn" id="open-cart" type="button" aria-label="Open cart">🛒 <span class="cart-count" id="cart-count">0</span></button>
       </div>
     </div>
@@ -77,11 +77,12 @@
 
   <footer>
     <div>Zesty Kitchen™ — no coworkers were harmed. Probably.</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-      <button class="btn white" type="button" id="unc-btn">👴 Unc mode</button>
-      <button class="btn white" type="button" id="tung-btn">🥁 Tung tung</button>
-      <button class="btn white" type="button" id="faah-btn">😱 FAAAH</button>
-    </div>
+    <section class="soundboard-wrap" aria-labelledby="sb-title">
+      <h2 id="sb-title">🔊 لوحة الأصوات / Soundboard</h2>
+      <p>Press to annoy the person next to you. Turn sound on/off with the 🔊 button.</p>
+      <div class="soundboard" id="soundboard"></div>
+      <button class="btn pink" type="button" id="unc-btn">👴 Unc mode</button>
+    </section>
   </footer>
 
   <!-- Cart drawer -->

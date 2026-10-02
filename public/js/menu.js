@@ -1,5 +1,5 @@
 import {
-  $, $$, api, esc, egp, toast, play, say, calm, isTouch, pick, getConfig, getDishes, initCommon, chefHtml, toggleUnc,
+  $, $$, api, esc, egp, toast, play, say, calm, isTouch, pick, getConfig, getDishes, initCommon, chefHtml, toggleUnc, fitImg, CLIPS, soundOn,
   getCart, saveCart, addToCart, cartCount, linePrice, totalsHtml, avatarHtml,
 } from "./common.js";
 
@@ -19,7 +19,7 @@ const badgeLabel = (b) => config.badges?.[b] || b;
 const orderCount = (id) => board.top.find((t) => t.id === id)?.orders || 0;
 const fakeKcal = (d) => d.calories || 900 + (hash(d.id) % 4100);
 const photoOrEmoji = (d, alt = "") =>
-  d.photo_url ? `<img src="${esc(d.photo_url)}" alt="${esc(alt)}" loading="lazy">` : `<span class="emoji-plate" aria-hidden="true">${PLATE_EMOJI[d.category] || "🍽️"}</span>`;
+  d.photo_url ? fitImg(d.photo_url, alt) : `<span class="emoji-plate" aria-hidden="true">${PLATE_EMOJI[d.category] || "🍽️"}</span>`;
 
 // ---------- Filter bar + grid ----------
 function renderTabs() {
@@ -113,7 +113,7 @@ function renderBoard() {
   const champ = top || dishes.find((d) => d.photo_url && !d.badges.includes("sold_out"));
   $("#hero-top").innerHTML = champ
     ? `<button class="champ" type="button" data-id="${champ.id}" aria-label="Open ${esc(champ.name_ar)}">
-        <span class="champ__photo">${champ.photo_url ? `<img src="${esc(champ.photo_url)}" alt="">` : `<span class="emoji-plate">🍽️</span>`}
+        <span class="champ__photo">${champ.photo_url ? fitImg(champ.photo_url) : `<span class="emoji-plate">🍽️</span>`}
           <span class="champ__crown" aria-hidden="true">👑</span>
           <span class="champ__count">${top ? `🔥 ${top.orders}× ordered` : "👀 up for grabs"}</span>
         </span>
@@ -220,7 +220,8 @@ async function openDish(id) {
     const size = form.size.value;
     const addons = $$("[name=addon]:checked", form).map((x) => x.value);
     addToCart({ dish_id: d.id, name_ar: d.name_ar, name_en: d.name_en, photo_url: d.photo_url, size, addons, qty, unit_price: linePrice(config, d.price, size, addons) });
-    play("ashta");
+    play("ka");
+    setTimeout(() => play("ashta"), 700);
     toast(`${d.name_ar} اتضاف. اشطا يا باشا 🫡`);
     $("#open-cart").classList.remove("bump");
     void $("#open-cart").offsetWidth;
@@ -261,7 +262,7 @@ function scanAura() {
     const score = pick([6700, 1000, 420, -67, -1000, 9001, 67]);
     const verdict = score > 500 ? "aura farming detected 🌾" : score > 0 ? "mid but valid" : "chopped 💀";
     photo.insertAdjacentHTML("beforeend", `<span class="aura-result">${score > 0 ? "+" : ""}${score.toLocaleString()} aura · ${verdict}</span>`);
-    play(score > 0 ? "boom" : "faah");
+    play(score > 0 ? "boom" : "sideeye");
   }, calm() ? 0 : 1800);
 }
 
@@ -302,7 +303,10 @@ async function postReview(e, dishId) {
   const btn = f.querySelector("[type=submit]");
   btn.disabled = true;
   // Lie detector: max stars = glazing
-  if (Number(f.chili_rating.value) === 5 && !calm()) toast("🚨 Lie detector: glazing detected. Posting anyway 🍩");
+  if (Number(f.chili_rating.value) === 5 && !calm()) {
+    toast("🚨 Lie detector: glazing detected. Posting anyway 🍩");
+    play("cap");
+  }
   try {
     const review = await api(`/api/dishes/${dishId}/reviews`, {
       method: "POST",
@@ -347,7 +351,7 @@ function dodge(btn) {
   const y = Math.round(-20 - Math.random() * 60);
   btn.style.transform = `translate(${x}px, ${y}px) rotate(${(Math.random() - 0.5) * 20}deg)`;
   toast(["اتقل يسطا 🏃", "too slow 😹", "skill issue"][dodges - 1] || "fine.");
-  play(dodges < 3 ? "bruh" : "faah");
+  play(dodges < 3 ? "bruh" : "goofy");
   if (dodges >= 3) {
     setTimeout(() => {
       btn.style.transform = "";
@@ -490,12 +494,12 @@ function onCartClick(e) {
     if (!calm() && step < 2) {
       e.target.dataset.step = step + 1;
       e.target.textContent = removeSteps[step];
-      play("bruh");
+      play(step === 0 ? "what" : "no");
       return;
     }
     cart.splice(Number(rm), 1);
     saveCart(cart);
-    play("sad");
+    play("getout");
     if (!calm()) toast(removeSteps[2]);
   }
 }
@@ -505,6 +509,55 @@ function toggleCart(open) {
   $("#drawer").setAttribute("aria-hidden", String(!open));
   $("#scrim").hidden = !open;
   if (open) $("#close-cart").focus();
+}
+
+// ---------- Soundboard (footer) ----------
+function setupSoundboard() {
+  const extra = { tung: "🥁 Tung tung sahur", airhorn: "📯 Airhorn", sheesh: "😤 Sheesh", ashta: "🇪🇬 اشطا يا باشا" };
+  const all = { ...Object.fromEntries(Object.entries(CLIPS).map(([k, v]) => [k, v[1]])), ...extra };
+  $("#soundboard").innerHTML = Object.entries(all).map(([k, label]) => `<button class="btn white" type="button" data-sound="${k}">${label}</button>`).join("");
+  $("#soundboard").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-sound]");
+    if (!b) return;
+    if (!soundOn()) return toast("🔇 Sounds are OFF. Turn them on with the 🔊 button (bottom left)");
+    play(b.dataset.sound);
+    b.classList.remove("bump");
+    void b.offsetWidth;
+    b.classList.add("bump");
+  });
+}
+
+// ---------- Header pills: fake delivery-app info that does dumb things ----------
+function setupHeaderJokes() {
+  const desks = ["📍 Desk #4 🪑", "📍 Meeting room 3 📊", "📍 HR office 💀", "📍 The roof 🪂", "📍 Under the boss's desk 🫣", "📍 الكافيتريا ☕", "📍 Parking lot 🚗"];
+  const etas = ["⏱️ 25–35 years", "⏱️ 6–7 min", "⏱️ after the meeting", "⏱️ بعد الفطار", "⏱️ 3–5 business days", "⏱️ never 💀", "⏱️ when HR approves"];
+  let desk = 0;
+  let eta = 0;
+  let rating = 4.9;
+  $("#pill-desk").addEventListener("click", (e) => {
+    desk = (desk + 1) % desks.length;
+    e.currentTarget.textContent = desks[desk];
+    toast("Delivery address updated. HR has been notified 📨");
+    play(desk === 2 ? "sideeye" : "pop");
+  });
+  $("#pill-eta").addEventListener("click", (e) => {
+    eta = (eta + 1) % etas.length;
+    e.currentTarget.textContent = etas[eta];
+    toast("ETA recalculated by a very smart AI (a coin) 🪙");
+    play(eta === 5 ? "sad" : "what");
+  });
+  $("#pill-rating").addEventListener("click", (e) => {
+    rating = Math.round((rating - 0.3) * 10) / 10;
+    if (rating < 3.5) {
+      rating = 4.9;
+      toast("Rating restored with 2,300 totally real reviews 🤖");
+      play("cap");
+    } else {
+      toast(`You lowered our rating to ${rating}. Happy? 😢`);
+      play("faah");
+    }
+    e.currentTarget.textContent = `⭐ ${rating} (2.3k)`;
+  });
 }
 
 // ---------- Boot ----------
@@ -558,8 +611,8 @@ async function boot() {
     }
   });
   $("#unc-btn").addEventListener("click", toggleUnc);
-  $("#tung-btn").addEventListener("click", () => play("tung"));
-  $("#faah-btn").addEventListener("click", () => play("faah"));
+  setupSoundboard();
+  setupHeaderJokes();
   let logoTaps = 0;
   $("#logo").addEventListener("click", (e) => {
     e.preventDefault();
@@ -568,7 +621,7 @@ async function boot() {
     document.body.style.transition = "transform .6s";
     document.body.style.transform = "rotate(180deg)";
     toast("🙃 upside-down cake mode");
-    play("ohno");
+    play("ahhh");
     setTimeout(() => (document.body.style.transform = ""), 2000);
   });
 }
