@@ -1,5 +1,4 @@
 const $ = (sel) => document.querySelector(sel);
-const BADGES = ["spicy", "popular", "new", "sold_out", "chefs_pick"];
 let config = null;
 let dishes = [];
 let editing = null;
@@ -66,8 +65,9 @@ async function loadDishes() {
         <span class="handle" aria-hidden="true">⠿</span>
         ${d.photo_url ? `<img src="${esc(d.photo_url)}" alt="">` : `<span class="noimg">🍽️</span>`}
         <div class="grow">
-          <strong>${esc(d.name_ar)}</strong> · ${esc(d.name_en)}
-          <small>${esc(cats[d.category] || d.category)} · ${d.price} EGP ${d.is_visible ? "" : "· hidden"}</small>
+          <strong>${esc(d.name_ar)}</strong>${d.name_en ? ` · ${esc(d.name_en)}` : ""}
+          <small>${esc(cats[d.category] || d.category)} · ${d.price} EGP${d.job_title ? ` · 💼 ${esc(d.job_title)}` : ""} ${d.is_visible ? "" : "· 🙈 hidden"}</small>
+          <span class="meta">${(d.badges || []).map((b) => `<span class="tag">${esc(config.badges[b] || b)}</span>`).join("")}</span>
         </div>
         <button class="btn small" data-edit="${d.id}">Edit</button>
         <button class="btn small danger" data-delete="${d.id}">Delete</button>
@@ -119,14 +119,41 @@ function openDish(dish) {
     f.name_en.value = dish.name_en;
     f.description.value = dish.description;
     f.price.value = dish.price;
+    f.job_title.value = dish.job_title || "";
+    f.catchphrase.value = dish.catchphrase || "";
+    f.warnings.value = dish.warnings || "";
+    f.spice_level.value = dish.spice_level ?? 3;
+    f.calories.value = dish.calories || "";
     f.category.value = dish.category;
     f.is_visible.checked = dish.is_visible;
   }
   f.querySelectorAll("[name=badges]").forEach((cb) => (cb.checked = dish ? dish.badges.includes(cb.value) : false));
+  setPreview(dish?.photo_url || null);
   $("#dish-dialog").showModal();
 }
 
 $("#new-dish").addEventListener("click", () => openDish(null));
+
+function setPreview(url) {
+  $("#photo-preview").innerHTML = url ? `<img src="${esc(url)}" alt="">` : "🍽️";
+}
+$("#dish-form").photo.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (file) setPreview(URL.createObjectURL(file));
+});
+
+const EXAMPLES = [
+  { job_title: "Senior Excel Abuser", catchphrase: "خليها بعد الاجتماع", warnings: "passive aggression, 3 coffees, unread emails", description: "Slow-cooked since the 9am standup. يسطا ده aura +1000.", spice_level: 4 },
+  { job_title: "Chief Meeting Officer", catchphrase: "let's take this offline", warnings: "calendar invites, no agenda", description: "Could've been an email. Comes with extra slides.", spice_level: 2 },
+  { job_title: "Intern (unpaid, vibes only)", catchphrase: "أنا مش فاهم حاجة", warnings: "anxiety, energy drinks", description: "Fresh, eager, slightly undercooked. Will make you coffee.", spice_level: 1 },
+  { job_title: "Head of Gossip ☕", catchphrase: "بيقولك…", warnings: "tea, more tea, screenshots", description: "Soaked in gossip. Knows everyone's salary.", spice_level: 5 },
+  { job_title: "IT guy who never answers", catchphrase: "did you try restarting it?", warnings: "cables, silence", description: "Grilled on low heat. Replies in 3–5 business days.", spice_level: 3 },
+];
+$("#dish-example").addEventListener("click", () => {
+  const f = $("#dish-form");
+  const ex = EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)];
+  for (const [k, v] of Object.entries(ex)) f[k].value = v;
+});
 $("#dish-cancel").addEventListener("click", () => $("#dish-dialog").close());
 
 $("#dish-form").addEventListener("submit", async (e) => {
@@ -139,6 +166,11 @@ $("#dish-form").addEventListener("submit", async (e) => {
     price: Number(f.price.value),
     category: f.category.value,
     badges: [...f.querySelectorAll("[name=badges]:checked")].map((cb) => cb.value),
+    job_title: f.job_title.value,
+    catchphrase: f.catchphrase.value,
+    warnings: f.warnings.value,
+    spice_level: Number(f.spice_level.value) || 3,
+    calories: Number(f.calories.value) || 0,
     is_visible: f.is_visible.checked,
   };
   $("#dish-save").disabled = true;
@@ -231,7 +263,7 @@ $("#reset-board").addEventListener("click", async () => {
 (async () => {
   config = await api("/api/config");
   $("#category-select").innerHTML = config.categories.map((c) => `<option value="${c.slug}">${c.emoji} ${c.en} / ${c.ar}</option>`).join("");
-  $("#badge-boxes").innerHTML = BADGES.map((b) => `<label class="inline"><input type="checkbox" name="badges" value="${b}"> ${b}</label>`).join("");
+  $("#badge-boxes").innerHTML = Object.entries(config.badges).map(([b, label]) => `<label class="inline"><input type="checkbox" name="badges" value="${b}"> ${label}</label>`).join("");
   try {
     await showPanel();
   } catch (err) {

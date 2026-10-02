@@ -29,7 +29,12 @@ function dishFields(body, { partial }) {
   const out = {};
   const has = (k) => b[k] !== undefined;
   if (!partial || has("name_ar")) out.name_ar = v.text(b.name_ar, "Arabic name", { max: 60 });
-  if (!partial || has("name_en")) out.name_en = v.text(b.name_en, "English name", { max: 60 });
+  if (!partial || has("name_en")) out.name_en = v.text(b.name_en ?? "", "English name", { min: 0, max: 60 });
+  if (!partial || has("job_title")) out.job_title = v.text(b.job_title ?? "", "job title", { min: 0, max: 80 });
+  if (!partial || has("catchphrase")) out.catchphrase = v.text(b.catchphrase ?? "", "catchphrase", { min: 0, max: 140 });
+  if (!partial || has("warnings")) out.warnings = v.text(b.warnings ?? "", "warnings", { min: 0, max: 200 });
+  if (!partial || has("spice_level")) out.spice_level = v.int(b.spice_level ?? 3, "spice level", 1, 5);
+  if (!partial || has("calories")) out.calories = v.int(b.calories ?? 0, "calories", 0, 999999);
   if (!partial || has("description")) out.description = v.text(b.description ?? "", "description", { min: 0, max: 500 });
   if (!partial || has("price")) out.price = v.price(b.price, "price");
   if (!partial || has("category")) out.category = v.oneOf(b.category, "category", menu.CATEGORIES.map((c) => c.slug));

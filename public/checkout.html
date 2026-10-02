@@ -14,14 +14,20 @@
   <header class="header">
     <div class="wrap header__row">
       <a class="logo" href="/"><span id="chef-slot"></span><span class="logo__name">Zesty Kitchen <small>checkout of doom</small></span></a>
-      <div class="header__meta"><span class="pill">🔒 100% secure-ish</span></div>
+      <div class="header__meta"><span class="pill">🔒 100% secure-ish</span><span class="pill hide-sm">🧾 No real money. Ever.</span></div>
     </div>
   </header>
 
-  <main class="wrap" style="max-width:720px">
+  <main class="wrap">
     <h1 style="margin-top:20px"><span class="wordart">Checkout</span> / الدفع</h1>
     <ol class="steps" id="steps" aria-label="Checkout progress"></ol>
-    <div id="step"></div>
+    <div class="checkout">
+      <div id="step"></div>
+      <aside class="panel summary" aria-label="Order summary">
+        <h2 style="font-size:1.4rem">🧾 طلبك / Your order</h2>
+        <div id="summary"></div>
+      </aside>
+    </div>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/js-confetti@0.12.0/dist/js-confetti.browser.js" defer></script>

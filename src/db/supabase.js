@@ -4,6 +4,10 @@ const { createClient } = require("@supabase/supabase-js");
 const BUCKET = "dishes";
 const isUuid = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id));
 
+const EXTRA_COLUMNS = ["job_title", "catchphrase", "warnings", "spice_level", "calories"];
+const withoutExtras = (fields) => Object.fromEntries(Object.entries(fields).filter(([k]) => !EXTRA_COLUMNS.includes(k)));
+const missingColumn = (res) => res.error?.code === "42703" || res.error?.code === "PGRST204";
+
 function createSupabaseStore({ url, secretKey }) {
   const sb = createClient(url, secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -26,11 +30,15 @@ function createSupabaseStore({ url, secretKey }) {
       return unwrap(await sb.from("dishes").select("*").eq("id", id).maybeSingle());
     },
     async createDish(fields) {
-      return unwrap(await sb.from("dishes").insert(fields).select().single());
+      let res = await sb.from("dishes").insert(fields).select().single();
+      if (missingColumn(res)) res = await sb.from("dishes").insert(withoutExtras(fields)).select().single();
+      return unwrap(res);
     },
     async updateDish(id, fields) {
       if (!isUuid(id)) return null;
-      return unwrap(await sb.from("dishes").update(fields).eq("id", id).select().maybeSingle());
+      let res = await sb.from("dishes").update(fields).eq("id", id).select().maybeSingle();
+      if (missingColumn(res)) res = await sb.from("dishes").update(withoutExtras(fields)).eq("id", id).select().maybeSingle();
+      return unwrap(res);
     },
     async deleteDish(id) {
       if (!isUuid(id)) return false;

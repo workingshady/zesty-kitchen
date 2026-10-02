@@ -60,21 +60,34 @@
   <dialog id="dish-dialog">
     <form id="dish-form" method="dialog">
       <h2 id="dish-dialog-title">Dish</h2>
-      <div class="grid2">
-        <label>Arabic name <input name="name_ar" required maxlength="60" dir="rtl"></label>
-        <label>English name <input name="name_en" required maxlength="60"></label>
+      <div class="photo-row">
+        <div class="preview" id="photo-preview">🍽️</div>
+        <label class="grow">📸 Photo (any shape, it gets cropped square) <input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/gif"></label>
       </div>
-      <label>Description <textarea name="description" maxlength="500" rows="3" dir="auto"></textarea></label>
       <div class="grid2">
-        <label>Price (EGP, the نص size) <input name="price" type="number" min="0" step="0.01" required></label>
+        <label>Arabic name / الاسم * <input name="name_ar" required maxlength="60" dir="rtl" placeholder="مندي أحمد"></label>
+        <label>English name (optional) <input name="name_en" maxlength="60" placeholder="Ahmed Mandi"></label>
+      </div>
+      <div class="grid2">
+        <label>💼 Job title (optional) <input name="job_title" maxlength="80" dir="auto" placeholder="Senior Excel Abuser"></label>
         <label>Category <select name="category" id="category-select"></select></label>
       </div>
+      <label>Description <textarea name="description" maxlength="500" rows="2" dir="auto" placeholder="Slow-cooked since the 9am standup…"></textarea></label>
+      <label>💬 Catchphrase (optional) <input name="catchphrase" maxlength="140" dir="auto" placeholder="أنا مش فاهم حاجة / let's take this offline"></label>
+      <label>⚠️ Contains / warnings (optional) <input name="warnings" maxlength="200" dir="auto" placeholder="passive aggression, 3 coffees, unread emails"></label>
+      <div class="grid3">
+        <label>Price EGP (نص size) <input name="price" type="number" min="0" step="0.01" required></label>
+        <label>🌶️ Spice 1–5 <input name="spice_level" type="number" min="1" max="5" step="1" value="3"></label>
+        <label>🔥 kcal of drama <input name="calories" type="number" min="0" max="999999" step="1" placeholder="0 = random"></label>
+      </div>
       <fieldset>
-        <legend>Badges</legend>
+        <legend>Badges (max 2 show on the card)</legend>
         <div id="badge-boxes" class="checks"></div>
       </fieldset>
-      <label class="inline"><input type="checkbox" name="is_visible" checked> Visible on menu</label>
-      <label>Photo <input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/gif"></label>
+      <div class="row-between">
+        <label class="inline"><input type="checkbox" name="is_visible" checked> Visible on menu</label>
+        <button class="btn ghost small" type="button" id="dish-example">🎲 Fill funny example</button>
+      </div>
       <p class="error" id="dish-error" role="alert"></p>
       <div class="row-between">
         <button class="btn ghost" type="button" id="dish-cancel">Cancel</button>

@@ -13,8 +13,32 @@ const CATEGORIES = [
   { slug: "trays", emoji: "🫕", ar: "صواني وعزائم", en: "Family trays", twist: "صينية التيم كله" },
   { slug: "soups", emoji: "🍲", ar: "شوربة", en: "Soups", twist: "Watered-down personalities" },
   { slug: "desserts", emoji: "🍰", ar: "حلويات", en: "Desserts", twist: "The sweet ones (rare)" },
+  { slug: "ful", emoji: "🫘", ar: "فول الصبح", en: "Morning Ful", twist: "Useless before 10am and the 3rd coffee" },
+  { slug: "koshary", emoji: "🍝", ar: "كشري الاجتماعات", en: "Meeting Koshary", twist: "A bit of everything, no clear point, 2 hours long" },
+  { slug: "taameya", emoji: "🧆", ar: "طعمية مقرمشة", en: "Crispy Ta3meya", twist: "Hot takes, fried daily" },
+  { slug: "mahshi", emoji: "🫑", ar: "محشي الإيميلات", en: "Stuffed Emails", twist: "One sentence wrapped in 14 paragraphs" },
+  { slug: "molokhia", emoji: "🥬", ar: "ملوخية الديدلاين", en: "Deadline Molokhia", twist: "Slimy under pressure but delivers" },
+  { slug: "basbousa", emoji: "🍯", ar: "بسبوسة المدير", en: "Boss's Basbousa", twist: "Overly sweet in meetings. Glazing." },
+  { slug: "bread", emoji: "🥖", ar: "عيش مدعم", en: "Subsidized Bread", twist: "Cheap, essential, always in the queue" },
+  { slug: "asab", emoji: "🧃", ar: "عصير قصب", en: "Sugarcane Juice", twist: "رايق. Sweet. Does nothing all day." },
+  { slug: "torshi", emoji: "🌶️", ar: "مخلل حراق", en: "Spicy Torshi", twist: "Small dose only. Heavy dose = warning letter." },
   { slug: "expired", emoji: "⚠️", ar: "منتهي الصلاحية", en: "Expired", twist: "Left the company" },
 ];
+
+// Friendly labels for the admin page and cards
+const BADGE_LABELS = {
+  spicy: "🌶️ Spicy",
+  popular: "🔥 Popular",
+  new: "✨ New",
+  sold_out: "💀 Sold out",
+  chefs_pick: "👨‍🍳 Chef's pick",
+  hr_approved: "✅ HR approved",
+  toxic: "☢️ Toxic",
+  on_vacation: "🏖️ On vacation",
+  overworked: "🥵 Overworked",
+  red_flag: "🚩 Red flag",
+  main_character: "🎬 Main character",
+};
 
 const SIZES = {
   quarter: { ar: "ربع", en: "Quarter", note: "just the vibes", mult: 0.6 },
@@ -32,7 +56,7 @@ const ADDONS = {
   no_drama: { ar: "بدون دراما", en: "No drama", price: 0, available: false },
 };
 
-const BADGES = ["spicy", "popular", "new", "sold_out", "chefs_pick"];
+const BADGES = Object.keys(BADGE_LABELS);
 const PAYMENT_METHODS = ["vibes", "insults", "owe_lunch"];
 const REACTIONS = ["🤢", "🔥", "💀", "🫡"];
 
@@ -66,6 +90,7 @@ module.exports = {
   SIZES,
   ADDONS,
   BADGES,
+  BADGE_LABELS,
   PAYMENT_METHODS,
   REACTIONS,
   round2,

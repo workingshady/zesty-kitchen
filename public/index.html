@@ -13,7 +13,7 @@
 </head>
 <body>
   <div class="marquee" aria-hidden="true"><div class="marquee__track" id="marquee"></div></div>
-  <div class="brat">brat kitchen summer · الأكل هنا بيرد عليك · no thoughts just mandi</div>
+  <div class="brat">brat kitchen summer · الأكل هنا بيرد عليك · no thoughts just mandi · 6 7</div>
 
   <header class="header">
     <div class="wrap header__row">
@@ -22,7 +22,7 @@
         <span class="logo__name">Zesty Kitchen <small>مطبخ زيستي · since standup</small></span>
       </a>
       <div class="header__meta">
-        <span class="pill hide-sm">📍 Delivery to: Desk #4 🪑</span>
+        <span class="pill hide-sm">📍 Desk #4 🪑</span>
         <span class="pill hide-sm">⏱️ 25–35 years</span>
         <span class="pill">⭐ 4.9 (2.3k)</span>
         <button class="btn red cart-btn" id="open-cart" type="button" aria-label="Open cart">🛒 <span class="cart-count" id="cart-count">0</span></button>
@@ -35,7 +35,10 @@
       <div>
         <h1><span class="wordart">اطلب زمايلك</span><br>Order your coworkers.</h1>
         <p>Freshly grilled in today's meeting. يسطا ده aura +1000. Every dish is a real coworker, every review is real slander. 🍋</p>
-        <a class="btn big red" href="#menu">Order now / اطلب دلوقتي</a>
+        <div class="hero__actions">
+          <a class="btn big red" href="#menu-top">Order now / اطلب دلوقتي</a>
+          <button class="btn big pink" type="button" id="open-wheel">🎡 دوّر وكُل / Spin</button>
+        </div>
       </div>
       <div class="hero__card">
         <h3>🏆 Most ordered right now</h3>
@@ -43,29 +46,48 @@
       </div>
     </section>
 
-    <div class="offer">🔥 <span><strong>عرض النهاردة / Today's offer:</strong> Order 2 coworkers, get the 3rd one's attitude for free. Terms: there are no terms.</span></div>
+    <div class="offer">🔥 <span><strong>عرض النهاردة / Today's offer:</strong> Order 2 coworkers, get the 3rd one's attitude for free. Terms: there are no terms. كوبون: <b>فكّك</b></span></div>
 
-    <nav class="cats" aria-label="Menu categories">
-      <div class="cats__scroll" id="cat-tabs" role="tablist"></div>
+    <nav class="cats" aria-label="Menu filters" id="menu-top">
+      <div class="cats__scroll" id="cat-tabs"></div>
+      <div class="toolbar">
+        <label class="search"><span aria-hidden="true">🔎</span><span class="sr-only">Search</span><input id="search" type="search" placeholder="دوّر على زميل… search a coworker" autocomplete="off"></label>
+        <select class="select" id="sort" aria-label="Sort">
+          <option value="default">✨ Chef's order</option>
+          <option value="popular">🔥 Most ordered</option>
+          <option value="cheap">💸 Cheapest</option>
+          <option value="expensive">💎 Most expensive</option>
+          <option value="spicy">🌶️ Spiciest</option>
+          <option value="chaos">🎲 Random chaos</option>
+        </select>
+      </div>
     </nav>
 
-    <div id="menu"></div>
+    <div class="cat-intro" id="cat-intro"></div>
+    <div class="grid" id="menu"></div>
 
     <section class="section" id="leaderboard" aria-labelledby="board-title">
-      <div class="section__head"><h2 id="board-title">🏆 Leaderboard / الأكثر طلبًا</h2><span class="section__twist">W orders only</span></div>
+      <div class="section__head"><h2 id="board-title">🏆 Leaderboard / الأكثر طلبًا</h2><span class="section__twist">W orders only. L's get roasted.</span></div>
       <div class="board">
-        <div class="board__panel"><ol id="board-top"></ol></div>
-        <div class="board__panel worst"><h3>💀 Worst seller</h3><div id="board-worst"></div></div>
+        <div class="board__panel"><div class="board__stats" id="board-stats"></div><ol id="board-top"></ol></div>
+        <div class="board__panel worst"><h3>💀 Worst seller / الأقل طلبًا</h3><div id="board-worst"></div></div>
       </div>
     </section>
   </main>
 
-  <footer>Zesty Kitchen™ — no coworkers were harmed. Probably. · <a href="/checkout">Checkout</a></footer>
+  <footer>
+    <div>Zesty Kitchen™ — no coworkers were harmed. Probably.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+      <button class="btn white" type="button" id="unc-btn">👴 Unc mode</button>
+      <button class="btn white" type="button" id="tung-btn">🥁 Tung tung</button>
+      <button class="btn white" type="button" id="faah-btn">😱 FAAAH</button>
+    </div>
+  </footer>
 
   <!-- Cart drawer -->
   <div class="scrim" id="scrim" hidden></div>
   <aside class="drawer" id="drawer" aria-label="Cart" aria-hidden="true">
-    <div class="drawer__head"><h2>🛒 Your order</h2><button class="btn white icon-btn" id="close-cart" type="button" aria-label="Close cart">✕</button></div>
+    <div class="drawer__head"><h2>🛒 Your order / طلبك</h2><button class="btn white icon-btn" id="close-cart" type="button" aria-label="Close cart">✕</button></div>
     <div class="drawer__items" id="cart-items"></div>
     <div class="drawer__foot">
       <div class="totals" id="cart-totals"></div>
@@ -77,10 +99,22 @@
   <!-- Dish modal -->
   <dialog class="modal" id="dish-modal" aria-labelledby="dish-title">
     <button class="btn white icon-btn modal__close" id="close-dish" type="button" aria-label="Close">✕</button>
-    <div class="modal__body" id="dish-body"></div>
+    <div class="modal__scroll"><div class="modal__body" id="dish-body"></div></div>
+    <div class="modal__foot" id="dish-foot"></div>
   </dialog>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/vanilla-tilt/1.8.1/vanilla-tilt.min.js" defer></script>
+  <!-- Spin wheel modal -->
+  <dialog class="modal small" id="wheel-modal" aria-labelledby="wheel-title">
+    <button class="btn white icon-btn modal__close" id="close-wheel" type="button" aria-label="Close">✕</button>
+    <div class="modal__body center">
+      <h2 id="wheel-title">🎡 دوّر وكُل / Spin & Eat</h2>
+      <p>Can't decide who to eat? Let fate (and HR) decide.</p>
+      <div class="wheel-wrap"><span class="wheel-pointer" aria-hidden="true">🔻</span><canvas id="wheel" width="600" height="600" aria-label="Wheel of coworkers"></canvas></div>
+      <p id="wheel-result" aria-live="polite" style="min-height:1.5em;font-weight:700"></p>
+      <button class="btn big red" type="button" id="spin">Spin / دوّر 🎰</button>
+    </div>
+  </dialog>
+
   <script src="https://cdn.jsdelivr.net/npm/rough-notation@0.5.1/lib/rough-notation.iife.js" defer></script>
   <script src="/js/menu.js" type="module"></script>
 </body>

@@ -26,9 +26,13 @@ async function leaderboard(db) {
   const ranked = visible
     .map((d) => ({ id: d.id, name_ar: d.name_ar, name_en: d.name_en, photo_url: db.photoUrl(d.photo_path), orders: counts.get(d.id) || 0 }))
     .sort((a, b) => b.orders - a.orders);
+  // Expired / sold-out dishes can't be ordered, so they never count as the worst seller
+  const orderable = new Set(visible.filter((d) => d.category !== "expired" && !d.badges.includes("sold_out")).map((d) => d.id));
+  const eligible = ranked.filter((d) => orderable.has(d.id));
   return {
     top: ranked.filter((d) => d.orders > 0).slice(0, 5),
-    worst: ranked.length > 1 ? ranked[ranked.length - 1] : null,
+    worst: eligible.length > 1 ? eligible[eligible.length - 1] : null,
+    total_orders: orders.length,
   };
 }
 
@@ -42,6 +46,11 @@ function publicDish(db, dish, reviews) {
     price: Number(dish.price),
     category: dish.category,
     badges: dish.badges,
+    job_title: dish.job_title || "",
+    catchphrase: dish.catchphrase || "",
+    warnings: dish.warnings || "",
+    spice_level: dish.spice_level ?? 3,
+    calories: dish.calories ?? 0,
     photo_url: db.photoUrl(dish.photo_path),
     review_count: mine.length,
     avg_chili: avg(mine.map((r) => r.chili_rating)),
@@ -53,8 +62,8 @@ function publicRouter(db) {
   const router = express.Router();
 
   router.get("/config", (req, res) => {
-    const { CATEGORIES, SIZES, ADDONS, PAYMENT_METHODS, REACTIONS } = menu;
-    res.json({ categories: CATEGORIES, sizes: SIZES, addons: ADDONS, payment_methods: PAYMENT_METHODS, reactions: REACTIONS, fees: menu.computeFees(0).fees });
+    const { CATEGORIES, SIZES, ADDONS, PAYMENT_METHODS, REACTIONS, BADGE_LABELS } = menu;
+    res.json({ categories: CATEGORIES, badges: BADGE_LABELS, sizes: SIZES, addons: ADDONS, payment_methods: PAYMENT_METHODS, reactions: REACTIONS, fees: menu.computeFees(0).fees });
   });
 
   router.get("/dishes", async (req, res) => {

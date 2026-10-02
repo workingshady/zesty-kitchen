@@ -1,4 +1,4 @@
-// Shared helpers + global chaos (googly eyes, crumbs, rage clicks, idle DVD, easter eggs).
+// Shared helpers + global chaos (meme sounds, googly eyes, crumbs, rage clicks, idle DVD, live order toasts, easter eggs).
 
 // ---------- storage (can throw in private mode) ----------
 const store = {
@@ -18,18 +18,20 @@ const store = {
     }
   },
 };
+export { store };
 
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 export const egp = (n) => `${Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 })} EGP`;
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+export const pick = (list) => list[Math.floor(Math.random() * list.length)];
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- modes ----------
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 export const isChill = () => store.get("zk_chill", false);
 export const calm = () => isChill() || reducedMotion;
-const isTouch = () => window.matchMedia("(hover: none)").matches;
-export { isTouch };
+export const isTouch = () => window.matchMedia("(hover: none)").matches;
 
 // ---------- API ----------
 let wakeTimer = null;
@@ -38,7 +40,7 @@ let firstCall = true;
 export async function api(path, options = {}) {
   if (firstCall) {
     firstCall = false;
-    wakeTimer = setTimeout(showWaking, 1200);
+    wakeTimer = setTimeout(showWaking, 1500);
   }
   try {
     const res = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
@@ -59,15 +61,17 @@ function showWaking() {
   const el = document.createElement("div");
   el.className = "waking";
   el.setAttribute("role", "status");
-  el.innerHTML = `<div><div class="waking__chef">👨‍🍳</div><h2>Chef is waking up… <br>الشيف لسه صاحي</h2><p>Free servers nap. Give it ~30 seconds, no cap.</p></div>`;
+  el.innerHTML = `<div><div class="waking__chef">👨‍🍳</div><h2>الشيف لسه صاحي… <br>Chef is waking up</h2><p>يسطا اصبر ثانية. No cap.</p></div>`;
   document.body.append(el);
 }
 
 let configPromise = null;
 export const getConfig = () => (configPromise ||= api("/api/config"));
+let dishesPromise = null;
+export const getDishes = () => (dishesPromise ||= api("/api/dishes").catch(() => []));
 
 // ---------- toasts ----------
-export function toast(message, { error = false, ms = 3200 } = {}) {
+export function toast(message, { error = false, ms = 3200, html = false, cls = "" } = {}) {
   let box = $(".toasts");
   if (!box) {
     box = document.createElement("div");
@@ -76,37 +80,121 @@ export function toast(message, { error = false, ms = 3200 } = {}) {
     document.body.append(box);
   }
   const t = document.createElement("div");
-  t.className = `toast${error ? " err" : ""}`;
-  t.textContent = message;
+  t.className = `toast${error ? " err" : ""} ${cls}`;
+  if (html) t.innerHTML = message;
+  else t.textContent = message;
   box.append(t);
+  while (box.children.length > 3) box.firstChild.remove();
   setTimeout(() => t.remove(), ms);
 }
 
-// ---------- sound (Web Audio, no files; off by default) ----------
-let audioCtx = null;
-export const soundOn = () => store.get("zk_sound", false) && !isChill();
-export function beep(notes = [[660, 0.08]], type = "square") {
+// ---------- meme sounds (synthesized + browser voice; no audio files) ----------
+// Sound is ON by default. Browsers only allow audio after the first click/tap, so nothing autoplays.
+let ac = null;
+export const soundOn = () => store.get("zk_sound", true) && !isChill();
+const ctx = () => {
+  ac ||= new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === "suspended") ac.resume();
+  return ac;
+};
+
+function tone({ type = "sine", from, to = from, dur = 0.2, at = 0, gain = 0.2, filter }) {
+  const a = ctx();
+  const t = a.currentTime + at;
+  const osc = a.createOscillator();
+  const g = a.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(from, t);
+  if (to !== from) osc.frequency.exponentialRampToValueAtTime(to, t + dur);
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  let node = osc;
+  if (filter) {
+    const f = a.createBiquadFilter();
+    Object.assign(f, { type: filter.type });
+    f.frequency.value = filter.freq;
+    f.Q.value = filter.q || 1;
+    osc.connect(f);
+    node = f;
+  }
+  node.connect(g).connect(a.destination);
+  osc.start(t);
+  osc.stop(t + dur + 0.05);
+}
+
+function noise({ dur = 0.05, at = 0, gain = 0.3, highpass = 0 }) {
+  const a = ctx();
+  const t = a.currentTime + at;
+  const buf = a.createBuffer(1, Math.max(1, a.sampleRate * dur), a.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  const src = a.createBufferSource();
+  src.buffer = buf;
+  const g = a.createGain();
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  let node = src;
+  if (highpass) {
+    const f = a.createBiquadFilter();
+    f.type = "highpass";
+    f.frequency.value = highpass;
+    src.connect(f);
+    node = f;
+  }
+  node.connect(g).connect(a.destination);
+  src.start(t);
+}
+
+let arabicVoice = null;
+if ("speechSynthesis" in window) {
+  const loadVoices = () => (arabicVoice = speechSynthesis.getVoices().find((v) => v.lang.startsWith("ar-EG")) || speechSynthesis.getVoices().find((v) => v.lang.startsWith("ar")) || null);
+  loadVoices();
+  speechSynthesis.onvoiceschanged = loadVoices;
+}
+export function say(text, { pitch = 1, rate = 1, arabic = false, force = false } = {}) {
+  if ((!soundOn() && !force) || !("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.pitch = pitch;
+  u.rate = rate;
+  if (arabic) {
+    u.lang = "ar-EG";
+    if (arabicVoice) u.voice = arabicVoice;
+  }
+  speechSynthesis.speak(u);
+}
+
+const SOUNDS = {
+  pop: () => tone({ from: 600, to: 1400, dur: 0.08, gain: 0.25 }),
+  boom: () => { tone({ from: 110, to: 40, dur: 0.7, gain: 0.9 }); noise({ dur: 0.03, gain: 0.4 }); },
+  faah: () => {
+    say("faaaaaaah", { pitch: 0.4, rate: 0.6 });
+    tone({ type: "sawtooth", from: 420, to: 180, dur: 0.9, gain: 0.12, filter: { type: "bandpass", freq: 1200 } });
+  },
+  bruh: () => say("bruh", { pitch: 0.1, rate: 0.7 }),
+  sheesh: () => say("sheeeeeesh", { pitch: 1.2, rate: 0.5 }),
+  ohno: () => [659, 659, 523, 440].forEach((f, i) => tone({ type: "square", from: f, dur: 0.15, at: i * 0.17, gain: 0.08 })),
+  airhorn: () => [0, 0.33, 0.66].concat(1).forEach((at, i) =>
+    [466, 470, 233].forEach((f) => tone({ type: "sawtooth", from: f, dur: i === 3 ? 0.8 : 0.25, at, gain: 0.07, filter: { type: "highpass", freq: 300 } })),
+  ),
+  sad: () => [392, 370, 349, 330].forEach((f, i) => tone({ type: "triangle", from: f, dur: i === 3 ? 1.2 : 0.45, at: i * 0.47, gain: 0.18 })),
+  error: () => { tone({ from: 659, dur: 0.12, gain: 0.18 }); tone({ from: 494, dur: 0.3, at: 0.13, gain: 0.18 }); },
+  pipe: () => { [520, 1347, 2210, 3390].forEach((f) => tone({ from: f, dur: 1.5, gain: 0.08 })); noise({ dur: 0.02, gain: 0.5 }); },
+  tung: () => { [0, 0.25, 0.5].forEach((at) => tone({ from: 80, to: 50, dur: 0.3, at, gain: 0.8 })); setTimeout(() => say("tung tung tung sahur", { pitch: 0.3, rate: 0.8 }), 800); },
+  win: () => [523, 659, 784, 1047].forEach((f, i) => tone({ type: "square", from: f, dur: 0.12, at: i * 0.11, gain: 0.08 })),
+  ashta: () => say(pick(["اشطا يا باشا", "عاش يا وحش", "فل الفل", "قشطة"]), { arabic: true, rate: 1.1 }),
+};
+
+export function play(name) {
   if (!soundOn()) return;
-  audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-  let t = audioCtx.currentTime;
-  for (const [freq, dur] of notes) {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.08, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start(t);
-    osc.stop(t + dur);
-    t += dur;
+  try {
+    SOUNDS[name]?.();
+  } catch {
+    /* audio not available */
   }
 }
-export const sfx = {
-  add: () => beep([[523, 0.07], [784, 0.1]]),
-  error: () => beep([[392, 0.18], [370, 0.18], [349, 0.18], [330, 0.4]], "sawtooth"), // sad trombone-ish
-  win: () => beep([[523, 0.1], [659, 0.1], [784, 0.1], [1047, 0.25]]),
-};
+// Back-compat helpers used across pages
+export const sfx = { add: () => play("pop"), error: () => play("error"), win: () => play("airhorn") };
 
 // ---------- cart ----------
 const CART_KEY = "zk_cart";
@@ -150,28 +238,45 @@ export function totalsHtml(cart) {
     <div class="grand"><span>Total / الإجمالي</span><span>${egp(total)}</span></div>`;
 }
 
-// ---------- floating controls ----------
+export const avatarHtml = (d, cls = "avatar") => (d?.photo_url ? `<img class="${cls}" src="${esc(d.photo_url)}" alt="">` : `<span class="${cls}">🍽️</span>`);
+
+// ---------- floating controls (labeled so people know what they do) ----------
 function mountFloaters() {
   const box = document.createElement("div");
   box.className = "floaters";
   box.innerHTML = `
-    <button class="btn white chill-btn" type="button" aria-pressed="${isChill()}">😩 <span>${isChill() ? "Chill mode ON" : "I give up"}</span></button>
-    <button class="btn white icon-btn sound-btn" type="button" aria-label="Toggle sound">${store.get("zk_sound", false) ? "🔊" : "🔇"}</button>`;
+    <button class="btn white chill-btn" type="button" aria-pressed="${isChill()}" title="Turns OFF all the annoying stuff: runaway buttons, fake captchas, sounds, animations">
+      😩 <span class="label"></span>
+    </button>
+    <button class="btn white sound-btn" type="button" aria-pressed="${soundOn()}" title="Meme sounds (FAAAH, vine boom, airhorn…) when you click stuff">
+      <span class="label"></span>
+    </button>`;
   document.body.append(box);
-  $(".chill-btn", box).addEventListener("click", (e) => {
+  const chillBtn = $(".chill-btn", box);
+  const soundBtn = $(".sound-btn", box);
+  const paint = () => {
+    $(".label", chillBtn).innerHTML = isChill() ? "رايق mode ON <span class='long'>(chaos off)</span>" : "فكّك / I give up <span class='long'>(stop the chaos)</span>";
+    $(".label", soundBtn).innerHTML = store.get("zk_sound", true) ? "🔊 <span class='long'>Sounds ON</span>" : "🔇 <span class='long'>Sounds OFF</span>";
+    chillBtn.setAttribute("aria-pressed", isChill());
+    soundBtn.setAttribute("aria-pressed", store.get("zk_sound", true));
+  };
+  paint();
+  chillBtn.addEventListener("click", () => {
     const next = !isChill();
     store.set("zk_chill", next);
-    e.currentTarget.setAttribute("aria-pressed", next);
-    $("span", e.currentTarget).textContent = next ? "Chill mode ON" : "I give up";
     document.documentElement.classList.toggle("chill-on", next);
-    toast(next ? "Chill mode: no more chaos. Weak, but valid 🫡" : "Chaos is back. Good luck habibi 😈");
+    paint();
+    toast(next ? "رايق mode: no more chaos, no sounds. Weak, but valid 🫡" : "Chaos is back. Good luck habibi 😈");
   });
-  $(".sound-btn", box).addEventListener("click", (e) => {
-    const next = !store.get("zk_sound", false);
-    store.set("zk_sound", next);
-    e.currentTarget.textContent = next ? "🔊" : "🔇";
-    if (next) sfx.add();
+  soundBtn.addEventListener("click", () => {
+    store.set("zk_sound", !store.get("zk_sound", true));
+    paint();
+    if (soundOn()) play("boom");
   });
+  if (!store.get("zk_seen_tip", false)) {
+    store.set("zk_seen_tip", true);
+    setTimeout(() => toast("💡 Tip: 😩 = stop the chaos · 🔊 = meme sounds. Type يلا for a secret 🤫", { ms: 6000 }), 1500);
+  }
 }
 
 // ---------- googly-eyed chef ----------
@@ -184,22 +289,21 @@ function googlyEyes() {
       const a = Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2));
       p.style.transform = `translate(${Math.cos(a) * 4}px, ${Math.sin(a) * 4}px)`;
     }
-    const scary = e.target.closest?.("[data-scary]");
-    $(".chef")?.classList.toggle("angry", Boolean(scary));
+    $(".chef")?.classList.toggle("angry", Boolean(e.target.closest?.("[data-scary]")));
   });
 }
 
 // ---------- food crumb cursor trail ----------
 function crumbTrail() {
   if (isTouch()) return;
-  const crumbs = ["🍗", "🌶️", "🧆", "🍚", "🌯", "🥙"];
+  const crumbs = ["🍗", "🌶️", "🧆", "🍚", "🌯", "🥙", "🫘"];
   let last = 0;
   document.addEventListener("pointermove", (e) => {
     if (calm() || Date.now() - last < 70) return;
     last = Date.now();
     const s = document.createElement("span");
     s.className = "trail";
-    s.textContent = crumbs[Math.floor(Math.random() * crumbs.length)];
+    s.textContent = pick(crumbs);
     s.style.left = `${e.clientX + 8}px`;
     s.style.top = `${e.clientY + 8}px`;
     document.body.append(s);
@@ -210,8 +314,9 @@ function crumbTrail() {
 // ---------- tab title guilt trip ----------
 function guiltyTitle() {
   const original = document.title;
+  const lines = ["😭 طلبك بيبرد / Your food is getting cold", "👀 ارجع يا جدع", "🍗 the mandi misses you", "💀 left on read by a kebab"];
   document.addEventListener("visibilitychange", () => {
-    document.title = document.hidden ? "😭 طلبك بيبرد / Your food is getting cold" : original;
+    document.title = document.hidden ? pick(lines) : original;
   });
 }
 
@@ -227,28 +332,13 @@ function rageClicks() {
       document.body.classList.remove("shake");
       void document.body.offsetWidth;
       document.body.classList.add("shake");
-      toast("اهدى habibi 😤 the clicks won't make it faster");
-      sfx.error();
+      toast(pick(["اهدى habibi 😤 the clicks won't make it faster", "crash out detected 🚨", "يسطا اتقل شوية 🧘"]));
+      play("faah");
     }
   });
 }
 
-// ---------- faces for effects ----------
-let faces = null;
-async function getFaces() {
-  if (faces) return faces;
-  try {
-    const dishes = await api("/api/dishes");
-    faces = dishes.map((d) => d.photo_url).filter(Boolean);
-  } catch {
-    faces = [];
-  }
-  return faces;
-}
-
-function faceEl(url, fallback = "🍗") {
-  return url ? `<img src="${esc(url)}" alt="">` : fallback;
-}
+const faceEl = (url, fallback = "🍗") => (url ? `<img src="${esc(url)}" alt="">` : fallback);
 
 // ---------- idle DVD bounce ----------
 function idleDvd() {
@@ -264,11 +354,11 @@ function idleDvd() {
   };
   async function start() {
     if (calm() || document.hidden) return stop();
-    const list = await getFaces();
+    const faces = (await getDishes()).map((d) => d.photo_url).filter(Boolean);
     dvd = document.createElement("div");
     dvd.className = "dvd";
     dvd.setAttribute("aria-hidden", "true");
-    dvd.innerHTML = faceEl(list[Math.floor(Math.random() * list.length)], "👨‍🍳");
+    dvd.innerHTML = faceEl(faces.length ? pick(faces) : null, "👨‍🍳");
     document.body.append(dvd);
     let x = 40, y = 40, vx = 2.2, vy = 1.8;
     const colors = ["#ffc700", "#ff69b4", "#8ace00", "#fa4b13", "#ff3b30"];
@@ -276,22 +366,42 @@ function idleDvd() {
       const maxX = innerWidth - 90, maxY = innerHeight - 90;
       x += vx;
       y += vy;
-      if (x <= 0 || x >= maxX) { vx *= -1; dvd.style.background = colors[Math.floor(Math.random() * colors.length)]; }
-      if (y <= 0 || y >= maxY) { vy *= -1; dvd.style.background = colors[Math.floor(Math.random() * colors.length)]; }
+      if (x <= 0 || x >= maxX) { vx *= -1; dvd.style.background = pick(colors); }
+      if (y <= 0 || y >= maxY) { vy *= -1; dvd.style.background = pick(colors); }
       dvd.style.transform = `translate(${x}px, ${y}px)`;
       raf = requestAnimationFrame(step);
     };
     step();
-    toast("Still deciding? The chef is judging you 👀");
+    toast("قفلت؟ Still deciding? The chef is judging you 👀");
   }
   ["pointermove", "keydown", "scroll", "touchstart"].forEach((ev) => addEventListener(ev, () => (dvd || timer) && stop(), { passive: true }));
   stop();
 }
 
-// ---------- easter eggs: Konami code or typing يلا ----------
+// ---------- fake live order notifications ----------
+const FAKE_PEOPLE = ["Hossam from Accounting", "Mona from HR", "the intern", "your manager", "Karim (on mute)", "Nour from Sales", "IT guy who never answers", "الأستاذ ممدوح", "unc from Finance", "someone who left 2 years ago"];
+function liveOrders() {
+  const tick = async () => {
+    setTimeout(tick, 25_000 + Math.random() * 25_000);
+    if (calm() || document.hidden) return;
+    const dishes = (await getDishes()).filter((d) => !d.badges.includes("sold_out"));
+    if (!dishes.length) return;
+    const d = pick(dishes);
+    const size = pick(["ربع", "نص", "عيلة", "كامل"]);
+    const line = pick([
+      `بيقولك <b>${pick(FAKE_PEOPLE)}</b> just ordered <b dir="auto">${esc(d.name_ar)}</b> (${size})`,
+      `🔥 ${3 + Math.floor(Math.random() * 20)} people are looking at <b dir="auto">${esc(d.name_ar)}</b> right now`,
+      `<b>${pick(FAKE_PEOPLE)}</b> left a 1🌶️ review on <b dir="auto">${esc(d.name_ar)}</b>. Crash out.`,
+    ]);
+    toast(`${avatarHtml(d)}<span>${line}</span>`, { html: true, cls: "live", ms: 5000 });
+  };
+  setTimeout(tick, 12_000);
+}
+
+// ---------- easter eggs: Konami code, typing يلا / tung / unc ----------
 export async function rainFaces(count = 24) {
-  if (calm()) return toast("يلا بينا 🏃 (chill mode is on, so no rain)");
-  const list = await getFaces();
+  if (calm()) return toast("يلا بينا 🏃 (رايق mode is on, so no rain)");
+  const faces = (await getDishes()).map((d) => d.photo_url).filter(Boolean);
   const layer = document.createElement("div");
   layer.className = "fx-layer";
   layer.setAttribute("aria-hidden", "true");
@@ -301,12 +411,22 @@ export async function rainFaces(count = 24) {
     d.style.left = `${Math.random() * 95}vw`;
     d.style.animationDuration = `${2 + Math.random() * 2.5}s`;
     d.style.animationDelay = `${Math.random() * 1.5}s`;
-    d.innerHTML = faceEl(list[i % (list.length || 1)], ["🍗", "🌯", "🍚", "🫕"][i % 4]);
+    d.innerHTML = faceEl(faces.length ? faces[i % faces.length] : null, ["🍗", "🌯", "🍚", "🫕"][i % 4]);
     layer.append(d);
   }
   document.body.append(layer);
-  sfx.win();
+  play("airhorn");
   setTimeout(() => layer.remove(), 6000);
+}
+
+export function toggleUnc() {
+  const next = !document.documentElement.classList.contains("unc-on");
+  document.documentElement.classList.toggle("unc-on", next);
+  store.set("zk_unc", next);
+  if (next) {
+    say("صباح الخير", { arabic: true });
+    toast("👴 Unc mode: صباح الخير 🌹 Comic Sans activated");
+  }
 }
 
 function easterEggs() {
@@ -316,12 +436,23 @@ function easterEggs() {
   addEventListener("keydown", (e) => {
     if (e.target.matches?.("input, textarea")) return;
     keys = keys.concat(e.key).slice(-konami.length);
-    typed = (typed + (e.key.length === 1 ? e.key : "")).slice(-3);
-    if (keys.join() === konami.join() || typed === "يلا") {
+    typed = (typed + (e.key.length === 1 ? e.key.toLowerCase() : "")).slice(-6);
+    if (keys.join() === konami.join() || typed.endsWith("يلا")) {
       keys = [];
       typed = "";
       toast("🚨 SECRET MENU UNLOCKED 🚨 brainrot level: critical");
       rainFaces();
+    } else if (typed.endsWith("tung")) {
+      typed = "";
+      play("tung");
+      toast("🥁 tung tung tung sahur");
+    } else if (typed.endsWith("unc")) {
+      typed = "";
+      toggleUnc();
+    } else if (typed.endsWith("67")) {
+      typed = "";
+      toast("6️⃣7️⃣ 6️⃣7️⃣ 6️⃣7️⃣");
+      play("boom");
     }
   });
 }
@@ -329,12 +460,18 @@ function easterEggs() {
 // ---------- boot ----------
 export function initCommon() {
   document.documentElement.classList.toggle("chill-on", isChill());
+  document.documentElement.classList.toggle("unc-on", store.get("zk_unc", false));
+  const unc = document.createElement("div");
+  unc.className = "unc";
+  unc.textContent = "🌹 صباح الخير · جمعة مباركة · Good Morning 🌹☕ (unc mode: type unc again to exit)";
+  document.body.prepend(unc);
   mountFloaters();
   googlyEyes();
   crumbTrail();
   guiltyTitle();
   rageClicks();
   idleDvd();
+  liveOrders();
   easterEggs();
 }
 
