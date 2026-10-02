@@ -30,6 +30,9 @@ high traffic. Audience is a small known group.
 | Reviews | Posted instantly; server-side bad-word filter; owner can delete |
 | Admin | Secret URL path **and** password, both from env vars |
 | Payment | Fake only. Never render card-number fields |
+| Currency | EGP (جنيه) — prices in Egyptian-restaurant ranges |
+| Menu structure | A "mega menu" merging the categories, sizes and add-ons of 4 real Egyptian restaurants (§6.1) |
+| Tone | Gen-Z / brainrot: Egyptian Gen-Z slang + English internet slang (§6.2) |
 
 ## 3. Architecture
 
@@ -70,7 +73,8 @@ warning (useful for local dev); admin routes are disabled if `ADMIN_PATH` or
 - `name_ar text not null`, `name_en text not null`
 - `description text not null default ''`
 - `price numeric(8,2) not null check (price >= 0)`
-- `category text not null` — one of `grills`, `rice`, `desserts`, `expired`
+- `category text not null` — one of the category slugs in §6.1
+- `price` is the **نص / Half** price; other sizes use fixed multipliers (§6.1)
 - `badges text[] not null default '{}'` — e.g. `spicy`, `popular`, `new`, `sold_out`, `chefs_pick`
 - `photo_path text` — object path in bucket `dishes`; null → emoji plate fallback
 - `is_visible boolean not null default true`
@@ -89,7 +93,7 @@ warning (useful for local dev); admin routes are disabled if `ADMIN_PATH` or
 **orders**
 - `id uuid pk`, `order_number int generated always as identity`
 - `customer_name text not null`
-- `items jsonb not null` — `[{dish_id, name_en, name_ar, qty, unit_price}]` snapshot
+- `items jsonb not null` — `[{dish_id, name_en, name_ar, size, addons, qty, unit_price}]` snapshot
 - `subtotal numeric`, `fees jsonb`, `total numeric`
 - `payment_method text not null` — `vibes`, `insults`, `owe_lunch`
 - `note text` (≤ 200 chars, filtered)
@@ -118,7 +122,7 @@ All JSON. Validation errors → 400 with a funny-but-clear message. Rate limits 
   → filtered review. Limit: 5 per 10 min.
 - `POST /api/reviews/:id/react` `{emoji}` → increments one of the 4 allowed emojis.
   Limit: 30 per min.
-- `POST /api/orders` `{customer_name, items:[{dish_id, qty}], payment_method, note}`
+- `POST /api/orders` `{customer_name, items:[{dish_id, size, addons, qty}], payment_method, note}`
   → server looks up real prices, computes subtotal + joke fees, saves, returns
   `{order_number, total, fees}`. Qty 1–9 per line, ≤ 10 lines, dishes must be visible.
   Limit: 5 per 10 min.
@@ -127,8 +131,12 @@ All JSON. Validation errors → 400 with a funny-but-clear message. Rate limits 
 - `GET /api/health` → existing health check.
 
 **Joke fees** (computed server-side, deterministic from subtotal):
-Eye-contact fee 4.99, Awkward silence tax 7% of subtotal, Delivery by HR 12.00,
-Emotional support fee 0.01. Total = subtotal + fees.
+رسوم التواصل البصري / Eye-contact fee 49.99, ضريبة السكوت المحرج / Awkward silence
+tax 14% of subtotal, توصيل عن طريق HR / Delivery by HR 120.00, Aura tax −67 aura
+(shown, costs 0 EGP), Emotional support fee 0.01. Total = subtotal + fees.
+
+**Line price** = `price × size multiplier + Σ add-on prices`, all from server
+constants (§6.1). The client's prices are ignored.
 
 **Admin** (all require valid admin cookie except login)
 - `GET /<ADMIN_PATH>` → admin HTML (login form if not signed in).
@@ -156,13 +164,64 @@ Pages (static files in `public/`, served by Express):
 
 Cart lives in `localStorage` (try/catch guarded). Shared helpers in `public/js/`.
 
+### 6.1 Mega menu (merged from 4 Egyptian restaurants)
+
+Researched: El Rayes Ibn Hamido (seafood), Hadramout Antar (Yemeni mandi), El Dahan
+(grills), Broccar (Syrian shawarma). Categories are fixed in code; the admin picks
+one per dish. Tabs are a horizontally scrolling sticky bar, like the real sites.
+
+| Slug | Tab label | From | Parody twist |
+|---|---|---|---|
+| `picks` | 💅 Picks for you / مختارات ليك | Broccar | "The algorithm chose violence" |
+| `mandi` | 🍚 مندي ومضغوط / Mandi | Hadramout | Coworkers served on rice, "slow-cooked since 9am standup" |
+| `grills` | 🔥 مشويات / Grills | El Dahan | Kebab/kofta-style coworkers, "grilled in the 1:1" |
+| `shawarma` | 🌯 شاورما / Shawarma | Broccar | "Wrapped up in drama" |
+| `seafood` | 🦐 سي فود بالكيلو / By the kilo | El Rayes | Sold by weight: "price per kilo of attitude" |
+| `fatta` | 🥣 فتة وطواجن / Fatta & tagines | Hadramout, El Rayes | "Soaked in tea (gossip) ☕" |
+| `sandwiches` | 🥪 سندوتشات / Sandwiches | all | "Squished between two meetings" |
+| `appetizers` | 🥗 مقبلات وسلطات / Starters | all | Interns and new joiners |
+| `trays` | 🫕 صواني وعزائم / Family trays | Hadramout | Whole teams as one combo: "صينية التيم كله" |
+| `soups` | 🍲 شوربة / Soups | El Rayes | "Watered-down personalities" |
+| `desserts` | 🍰 حلويات / Desserts | — | The sweet ones (rare) |
+| `expired` | ⚠️ منتهي الصلاحية / Expired | — | People who left the company |
+
+**Sizes** (the El Dahan / Hadramout ربع-نص-كامل pattern), multipliers on `price`:
+| Size | Label | × |
+|---|---|---|
+| `quarter` | ربع / Quarter ("just the vibes") | 0.6 |
+| `half` | نص / Half | 1.0 |
+| `whole` | كامل / Whole person | 1.8 |
+| `family` | عيلة / Family size ("comes with their mom") | 3.0 |
+
+**Add-ons** (the "sauces & extras" pattern), fixed prices in EGP:
+طحينة إضافية / Extra tahini 10 · عيش زيادة / Extra bread 5 · Extra sarcasm 25 ·
+بدون دراما / No drama (−0, "not available") · Side of gossip ☕ 15 · Aura boost +1000 aura 67.
+
+Every real menu has these, so the parody has them too: a "🔥 عرض النهاردة / Today's
+offer" strip under the header, item cards with "Starting from X EGP", and a
+"Most ordered" badge driven by the leaderboard.
+
+### 6.2 Tone: Gen-Z / brainrot
+
+Mixed Egyptian Gen-Z Arabic + English internet slang in all fixed UI copy.
+Examples: "يسطا ده aura +1000", "no cap ده أحسن مندي", "It's giving… overtime",
+"delulu delivery time", "skill issue" (validation errors), "سيبك ده NPC behavior",
+"W order / L order", "slay 💅", "fr fr", "brainrot level: critical", "6️⃣7️⃣".
+Reviews show an **Aura meter** next to the 🌶️ rating (aura = avg chili × 200 − 67).
+Keep it PG: no slurs, nothing about religion, looks, or family beyond the jokes
+listed here.
+
 ### Visual style
-Neo-brutalism: 3px black borders, hard offset shadows (`6px 6px 0 #111`), buttons
-that "press" on `:active`. Palette: cream `#FFF4E0` background, ketchup `#FF3B30`,
-mustard `#FFC700`, hot-sauce `#FA4B13`, pink `#FF69B4` (badges), pickle `#39FF14`
-(accents only), ink `#111`. Fonts: **Lalezar** (headings, dish names), **Baloo
-Bhaijaan 2** (buttons, prices), **Cairo** (body). User text rendered with
-`dir="auto"`. Mobile-first; 44px tap targets; bottom cart bar on phones.
+Neo-brutalism meets Gen-Z "dopamine" / Y2K brainrot: 3px black borders, hard
+offset shadows (`6px 6px 0 #111`), buttons that "press" on `:active`, slightly
+rotated sticker labels, a few WordArt-style gradient headings, a scrolling marquee
+of fake hype ("🚨 أحمد اتطلب 67 مرة النهاردة 🚨"), and a Brat-style slime-green
+banner. Palette: cream `#FFF4E0` background, ketchup `#FF3B30`, mustard `#FFC700`,
+hot-sauce `#FA4B13`, pink `#FF69B4` (badges), slime `#8ACE00` (Brat banner),
+pickle `#39FF14` (accents only), ink `#111`. Text only on cream/white or black for
+contrast. Fonts: **Lalezar** (headings, dish names), **Baloo Bhaijaan 2** (buttons,
+prices), **Cairo** (body). User text rendered with `dir="auto"`. Mobile-first; 44px
+tap targets; bottom cart bar on phones.
 
 ### Fun features
 
@@ -183,14 +242,15 @@ Global
 
 Menu
 - Fake app header: "Delivery to: Desk #4 🪑", "25–35 years", "4.9★ (2.3k)".
-- Category tabs: Grills 🔥 / Rice 🍚 / Desserts 🍰 / Expired ⚠️.
+- Sticky scrolling category tabs from §6.1; "🔥 Today's offer" strip; hype marquee.
 - Dish cards: face on a plate, AR + EN names, price, badges; 3D tilt on hover
   (`vanilla-tilt`); `rough-notation` strike-through on `sold_out`, circle on
   `chefs_pick`; "🔥 N coworkers are eyeing this dish".
 - Leaderboard section (🏆 top 5 + 💀 worst seller).
 
 Dish modal
-- Big photo, description, joke add-on checkbox "Extra sarcasm +2.00" (adds to line).
+- Big photo, description, size picker (ربع / نص / كامل / عيلة) and add-on
+  checkboxes from §6.1, live line price, quantity stepper.
 - Runaway "Add to cart" (dodges 3 times on hover; on touch, jumps after first tap),
   then "fine 🙄" and works.
 - Reviews: 🌶️ 1–5 + awkwardness 1–5, emoji reactions, deterministic joke badge per
