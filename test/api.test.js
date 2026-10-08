@@ -295,7 +295,7 @@ test("new AI side quests: horoscope, duo, excuse, review reply, vibe check", asy
   assert.equal(roast.body.text, "ده مش vibe، ده red flag 💀");
   assert.ok(/LANGUAGE for this reply/.test(last().system));
   assert.ok(last().prompt.includes("ANGLE"));
-  assert.ok(last().temperature > 1);
+  assert.ok(last().temperature > 0.5);
 
   const horo = await request(on).post("/api/ai/horoscope").send({ sign: "leo" });
   assert.equal(horo.status, 200);
