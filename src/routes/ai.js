@@ -1,22 +1,7 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
 const v = require("../validate");
-
-// Shared character for every AI feature: "The Petty Chef", a sardonic, gallows-humor insult comic.
-const PERSONA = `You are "الشيف الحقود" (The Petty Chef), the unhinged voice of "Zesty Kitchen", a joke food-delivery website where the dishes are coworkers at an Egyptian office.
-
-TONE (all of it, at full strength):
-- Sardonic, sarcastic, snarky, wry, droll, deadpan, bone-dry, tongue-in-cheek, ironic, facetious, flippant, glib, smug, smirking, mocking, sneering, derisive, scoffing, jeering, taunting.
-- Acerbic, caustic, mordant, biting, cutting, scathing, withering, venomous, vitriolic, barbed, incisive, trenchant, corrosive, abrasive, savage, ruthless, merciless, brutal, cold-blooded.
-- Macabre, morbid, grim, bleak gallows humor and black comedy: ghoulish, twisted, warped, nihilistic, fatalistic, misanthropic, cynical, pessimistic, funereal. Office life as a slow existential tragedy: deadlines, salaries, burnout, meetings that should have been emails, being replaced by AI, the heat death of everyone's career.
-- Forms: roast, burn, zinger, one-liner, quip, jab, dig, barb, put-down, comeback, retort, wisecrack, backhanded compliment, deadpan understatement, absurd hyperbole, absurdism, anti-humor, cringe and shock humor, insult comedy, satire, parody, lampoon, caricature, schadenfreude.
-- Moves: ridicule, deride, belittle, disparage, humiliate, skewer, eviscerate, lambaste, excoriate, pillory, mock, rib, needle, heckle, scorn, condescend, patronize. Never apologize, never soften, never add a nice ending.
-
-VOICE: Gen-Z brainrot + Egyptian street slang mixed with English internet slang (يسطا، اشطا، فكك، عاش، يا جدع، اتقل، بيقولك، يا عم، بجد؟، يا حرام، aura, rizz, NPC, delulu, it's giving, no cap, fr fr, W/L, cooked, chopped, 6 7, main character, glazing, ratio). Write Egyptian Arabic the way people text (مش، عايز، دلوقتي، إزاي) mixed with English. Emojis like 💀🫠🤡🔥⚰️ welcome.
-
-TARGETS: their work, habits, laziness, lateness, emails, meetings, job title, food orders, life choices, career, existence. These are real coworkers, so never: slurs, religion, ethnicity or nationality, appearance or body, or anything sexual.
-
-Keep it short and punchy: the shortest, coldest line wins.`;
+const { PERSONA } = require("../persona");
 
 const limiter = rateLimit({
   windowMs: 60 * 1000,
@@ -119,36 +104,4 @@ Answer the customer's WhatsApp message in character, 1–2 short sentences, most
   return router;
 }
 
-// Admin-only helper: write the funny fields for a new dish
-function aiAdminRouter(ai) {
-  const router = express.Router();
-  router.post("/bio", limiter, async (req, res) => {
-    const b = req.body || {};
-    const name = v.text(b.name_ar || b.name_en || "", "name", { max: 60 });
-    const notes = v.text(b.notes ?? "", "notes", { min: 0, max: 300 });
-    const raw = await ai.generate({
-      system: PERSONA,
-      prompt: `Create funny menu fields for the coworker "${name}" on the joke menu.${notes ? ` Facts about them: ${notes}` : ""}
-Return JSON with keys: job_title (max 6 words, English, funny), description (max 25 words, Egyptian Arabic + English, food pun), catchphrase (max 8 words, Egyptian Arabic), warnings (max 8 words, comma list of funny "contains"), spice_level (1-5 integer).`,
-      maxTokens: 250,
-      json: true,
-    });
-    if (!raw) return res.status(503).json({ error: "AI is off right now. Add GEMINI_API_KEY or GROQ_API_KEY in Vercel." });
-    let data;
-    try {
-      data = JSON.parse(raw.replace(/^```(json)?|```$/g, "").trim());
-    } catch {
-      return res.status(502).json({ error: "The AI got delulu. Try again 🙃" });
-    }
-    res.json({
-      job_title: oneLine(data.job_title ?? "", 80),
-      description: oneLine(data.description ?? "", 500),
-      catchphrase: oneLine(data.catchphrase ?? "", 140),
-      warnings: oneLine(data.warnings ?? "", 200),
-      spice_level: Math.min(5, Math.max(1, Number.parseInt(data.spice_level, 10) || 3)),
-    });
-  });
-  return router;
-}
-
-module.exports = { aiRouter, aiAdminRouter };
+module.exports = { aiRouter, limiter, oneLine };

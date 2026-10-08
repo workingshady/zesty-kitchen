@@ -6,7 +6,7 @@ const sharp = require("sharp");
 const menu = require("../menu");
 const v = require("../validate");
 const auth = require("../auth");
-const { aiAdminRouter } = require("./ai");
+const { aiAdminRouter } = require("./ai-admin");
 
 const upload = multer({
   storage: multer.memoryStorage(),

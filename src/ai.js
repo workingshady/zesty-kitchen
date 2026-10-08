@@ -23,14 +23,15 @@ async function withTimeout(url, options) {
   }
 }
 
-async function gemini(env, { system, prompt, maxTokens, temperature, json }) {
+async function gemini(env, { system, prompt, maxTokens, temperature, json, images = [] }) {
   const model = env.GEMINI_MODEL || "gemini-flash-latest";
   const res = await withTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      // images: [{ mime, data(base64) }] so Gemini can "see" e.g. the dish photo
+      contents: [{ role: "user", parts: [...images.map((i) => ({ inline_data: { mime_type: i.mime, data: i.data } })), { text: prompt }] }],
       // Newer Gemini models "think" before answering and that counts toward the output budget
       generationConfig: { temperature, maxOutputTokens: maxTokens * 10, ...(json ? { responseMimeType: "application/json" } : {}) },
     }),
@@ -67,6 +68,32 @@ async function groq(env, { system, prompt, maxTokens, temperature, json }) {
   return choice?.message?.content?.trim() || null;
 }
 
+// OpenAI-compatible chat completions with tool calling. Groq speaks it natively and Gemini has
+// a compatibility endpoint, so the chatbot agent uses one format for both.
+const CHAT_ENDPOINTS = {
+  groq: (env) => ({ url: "https://api.groq.com/openai/v1/chat/completions", key: env.GROQ_API_KEY, model: env.GROQ_AGENT_MODEL || "openai/gpt-oss-120b" }),
+  gemini: (env) => ({ url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", key: env.GEMINI_API_KEY, model: env.GEMINI_AGENT_MODEL || env.GEMINI_MODEL || "gemini-flash-latest" }),
+};
+
+async function chatCompletion(env, name, { messages, tools, maxTokens, temperature }) {
+  const { url, key, model } = CHAT_ENDPOINTS[name](env);
+  const res = await withTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      messages,
+      ...(tools?.length ? { tools, tool_choice: "auto" } : {}),
+      temperature,
+      max_tokens: maxTokens * 10,
+      ...(name === "groq" ? { reasoning_effort: "low" } : {}),
+    }),
+  });
+  if (!res.ok) throw new Error(`${name} chat ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message || null;
+}
+
 function createAi(env = process.env) {
   const providers = [];
   if (env.GEMINI_API_KEY) providers.push(["gemini", gemini]);
@@ -75,13 +102,32 @@ function createAi(env = process.env) {
   return {
     enabled: providers.length > 0,
     providers: providers.map(([name]) => name),
-    /** Returns the model's text, or null if AI is off, over the daily cap, or every provider failed. */
-    async generate({ system, prompt, maxTokens = 300, temperature = 1, json = false }) {
+    /**
+     * One chat turn with optional tools. Returns the assistant message
+     * ({ content, tool_calls }) or null. Groq first for the agent: it is faster at tool use.
+     */
+    async chat({ messages, tools = [], maxTokens = 400, temperature = 0.9 }) {
       if (!providers.length || !underCap()) return null;
       usage.count++;
+      const order = ["groq", "gemini"].filter((n) => providers.some(([p]) => p === n));
+      for (const name of order) {
+        try {
+          const msg = await chatCompletion(env, name, { messages, tools, maxTokens, temperature });
+          if (msg) return msg;
+        } catch (err) {
+          console.warn(`AI chat provider ${name} failed: ${err.message}`);
+        }
+      }
+      return null;
+    },
+    /** Returns the model's text, or null if AI is off, over the daily cap, or every provider failed. */
+    async generate({ system, prompt, maxTokens = 300, temperature = 1, json = false, images = [] }) {
+      if (!providers.length || !underCap()) return null;
+      usage.count++;
+      // Only Gemini reads images here; Groq gets the text-only version
       for (const [name, call] of providers) {
         try {
-          const text = await call(env, { system, prompt, maxTokens, temperature, json });
+          const text = await call(env, { system, prompt, maxTokens, temperature, json, images: name === "gemini" ? images : [] });
           if (text) return text;
         } catch (err) {
           console.warn(`AI provider ${name} failed: ${err.message}`);
