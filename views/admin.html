@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:,">
   <title>Kitchen Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -31,7 +32,7 @@
     </section>
 
     <section id="panel" hidden>
-      <nav class="tabs" role="tablist">
+      <nav class="tabs" aria-label="Admin sections">
         <button class="tab active" data-tab="overview">📊 Overview</button>
         <button class="tab" data-tab="dishes">🍽️ Dishes</button>
         <button class="tab" data-tab="reviews">💬 Reviews</button>
@@ -40,10 +41,26 @@
       </nav>
 
       <div id="tab-overview" class="tab-panel">
-        <div class="row-between">
+        <div class="page-head">
           <h2>Overview</h2>
-          <button class="btn ghost small" id="refresh-overview">↻ Refresh</button>
+          <div class="page-tools">
+            <div class="seg" role="group" aria-label="Period" id="period">
+              <button class="seg-btn" type="button" data-period="today" aria-pressed="false">Today</button>
+              <button class="seg-btn" type="button" data-period="7d" aria-pressed="false">7 days</button>
+              <button class="seg-btn" type="button" data-period="30d" aria-pressed="false">30 days</button>
+              <button class="seg-btn" type="button" data-period="all" aria-pressed="false">All</button>
+            </div>
+            <button class="btn ghost small icon-btn" id="refresh-overview" type="button" aria-label="Refresh" title="Refresh">↻</button>
+          </div>
         </div>
+        <div class="quick-actions" role="group" aria-label="Quick actions">
+          <button class="btn small" type="button" data-quick="new-dish">＋ New dish</button>
+          <a class="btn small ghost" id="quick-csv" href="/api/admin/orders.csv?range=7d" download>⬇ Orders CSV</a>
+          <button class="btn small ghost" type="button" data-chef-run="find_issues">🧹 What needs fixing?</button>
+          <button class="btn small ghost" type="button" data-chef-run="weekly_report">📝 Weekly report</button>
+          <a class="btn small ghost" href="/" target="_blank" rel="noopener">↗ Open the menu</a>
+        </div>
+        <div id="overview" aria-live="polite"></div>
         <section class="card ai-card" id="ai-card" aria-labelledby="ai-card-title">
           <div class="row-between">
             <h3 id="ai-card-title">🤖 AI status</h3>
@@ -51,7 +68,6 @@
           </div>
           <div id="ai-status"><p class="state">Checking…</p></div>
         </section>
-        <div id="overview"></div>
       </div>
 
       <div id="tab-dishes" class="tab-panel" hidden>
@@ -71,6 +87,8 @@
             <option value="">Visible + hidden</option>
             <option value="visible">👁 Visible only</option>
             <option value="hidden">🙈 Hidden only</option>
+            <option value="no_photo">📸 No photo</option>
+            <option value="no_description">📝 No description</option>
           </select>
           <select id="dish-sort" aria-label="Sort dishes">
             <option value="menu">↕ Menu order</option>
@@ -127,6 +145,7 @@
         </div>
         <p class="hint" id="review-summary"></p>
         <ul id="review-list" class="simple-list"></ul>
+        <div class="more-row"><button class="btn ghost small" type="button" id="review-more" hidden>Load more</button></div>
       </div>
 
       <div id="tab-orders" class="tab-panel" hidden>
@@ -142,6 +161,7 @@
           <div class="seg" role="group" aria-label="Date range">
             <button class="seg-btn" data-range="today">Today</button>
             <button class="seg-btn" data-range="7d">7 days</button>
+            <button class="seg-btn" data-range="30d">30 days</button>
             <button class="seg-btn active" data-range="all">All</button>
           </div>
         </div>
@@ -150,7 +170,10 @@
           <summary><strong>📅 Totals per day</strong> <small>(for the orders shown)</small></summary>
           <div class="table-wrap"><table class="data-table" id="day-table"></table></div>
         </details>
-        <ul id="order-list" class="simple-list"></ul>
+        <div class="table-wrap sticky-wrap">
+          <table class="data-table orders-table" id="order-table" aria-describedby="order-summary"></table>
+        </div>
+        <div class="more-row"><button class="btn ghost small" type="button" id="order-more" hidden>Load more</button></div>
       </div>
 
       <div id="tab-settings" class="tab-panel" hidden>
@@ -287,7 +310,8 @@
         <small id="chef-status"><span class="dot"></span> checking AI…</small>
       </div>
       <div class="btn-group">
-        <button class="btn ghost small icon-btn" type="button" id="chef-clear" title="New chat" aria-label="New chat">🧹</button>
+        <button class="btn ghost small icon-btn" type="button" id="chef-clear" title="Clear chat history" aria-label="Clear chat history">🧹</button>
+        <button class="btn ghost small icon-btn chef-pin-btn" type="button" id="chef-pin" title="Pin as side panel" aria-label="Pin as side panel" aria-pressed="false">📌</button>
         <button class="btn ghost small icon-btn chef-wide-btn" type="button" id="chef-wide" title="Expand" aria-label="Expand chat" aria-pressed="false">⤢</button>
         <button class="btn ghost small icon-btn" type="button" id="chef-close" title="Close (Esc)" aria-label="Close chat">✕</button>
       </div>
@@ -296,7 +320,7 @@
     <div class="chef-chips" id="chef-chips" role="group" aria-label="Quick actions"></div>
     <form class="chef-form" id="chef-form">
       <label class="sr-only" for="chef-input">Message the chef assistant</label>
-      <textarea id="chef-input" rows="1" maxlength="800" dir="auto" placeholder="Ask the chef… (e.g. hide toxic dishes)"></textarea>
+      <textarea id="chef-input" rows="1" maxlength="800" dir="auto" placeholder="Ask the chef… (e.g. raise grills 10%)"></textarea>
       <button class="btn" type="submit" id="chef-send" aria-label="Send">➤</button>
     </form>
   </aside>

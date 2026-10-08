@@ -123,8 +123,198 @@ function ordersInRange(orders, range, tz, now = Date.now()) {
   return orders.filter((o) => keep.has(dayOf(o.created_at)));
 }
 
+function weekdayKeyer(tz) {
+  let fmt;
+  try {
+    fmt = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: tz || "Africa/Cairo" });
+  } catch {
+    fmt = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "Africa/Cairo" });
+  }
+  return (date) => fmt.format(new Date(date));
+}
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const lineTotal = (i) => (Number(i.unit_price) || 0) * (Number(i.qty) || 0);
+
+/**
+ * Sales grouped by weekday (Mon..Sun) or hour (0..23) in `tz`, optionally for one dish.
+ * Each bucket: orders (containing the dish when filtered), items (qty), revenue, top dish.
+ */
+function salesBy(orders, by, { tz, dishId = null } = {}) {
+  const keyOf = by === "hour" ? hourKeyer(tz) : weekdayKeyer(tz);
+  const keys = by === "hour" ? Array.from({ length: 24 }, (_, h) => h) : WEEKDAYS;
+  const buckets = new Map(keys.map((k) => [k, { key: k, orders: 0, items: 0, revenue: 0, dishes: new Map() }]));
+  for (const o of orders) {
+    const lines = (o.items || []).filter((i) => !dishId || i.dish_id === dishId);
+    if (!lines.length) continue;
+    const b = buckets.get(keyOf(o.created_at));
+    if (!b) continue;
+    b.orders++;
+    for (const i of lines) {
+      b.items += Number(i.qty) || 0;
+      b.revenue += dishId ? lineTotal(i) : 0;
+      const d = b.dishes.get(i.dish_id) || { name: i.name_en || i.name_ar, qty: 0 };
+      d.qty += Number(i.qty) || 0;
+      b.dishes.set(i.dish_id, d);
+    }
+    if (!dishId) b.revenue += Number(o.total) || 0;
+  }
+  return [...buckets.values()].map((b) => {
+    const top = [...b.dishes.values()].sort((x, y) => y.qty - x.qty)[0] || null;
+    return { key: b.key, orders: b.orders, items: b.items, revenue: round2(b.revenue), top_dish: top ? `${top.name} ×${top.qty}` : null };
+  });
+}
+
+const pctChange = (cur, prev) => (prev ? Math.round(((cur - prev) / prev) * 1000) / 10 : null);
+
+/** Numbers for one dashboard period (today / 7d / 30d / all) plus the same numbers for the period before it. */
+function periodStats({ dishes, reviews, orders, range = "7d", tz, now = Date.now() }) {
+  const rk = RANGES[range] ? range : "7d";
+  const dayOf = dayKeyer(tz);
+  const hourOf = hourKeyer(tz);
+  const n = RANGES[rk];
+  let buckets; // [{ key, label }]
+  let inCur;
+  let inPrev = null;
+  let bucketOf;
+  if (rk === "today") {
+    const today = dayOf(now);
+    const yesterday = dayOf(now - 864e5);
+    buckets = Array.from({ length: 24 }, (_, h) => ({ key: h, label: `${String(h).padStart(2, "0")}:00` }));
+    inCur = (o) => dayOf(o.created_at) === today;
+    inPrev = (o) => dayOf(o.created_at) === yesterday;
+    bucketOf = (o) => hourOf(o.created_at);
+  } else {
+    const span = n === Infinity ? 30 : n;
+    const days = lastDays(span, tz, now);
+    const cur = new Set(n === Infinity ? [] : days);
+    const prev = new Set(n === Infinity ? [] : lastDays(2 * n, tz, now).slice(0, n));
+    buckets = days.map((d) => ({ key: d, label: d }));
+    inCur = n === Infinity ? () => true : (o) => cur.has(dayOf(o.created_at));
+    if (n !== Infinity) inPrev = (o) => prev.has(dayOf(o.created_at));
+    bucketOf = (o) => dayOf(o.created_at);
+  }
+  const metrics = (list, revs) => {
+    const revenue = list.reduce((s, o) => s + (Number(o.total) || 0), 0);
+    const items = list.reduce((s, o) => s + (o.items || []).reduce((x, i) => x + (Number(i.qty) || 0), 0), 0);
+    const chili = revs.reduce((s, r) => s + (Number(r.chili_rating) || 0), 0);
+    return {
+      orders: list.length,
+      revenue: round2(revenue),
+      avg_order_value: list.length ? round2(revenue / list.length) : 0,
+      items,
+      customers: new Set(list.map((o) => firstName(o.customer_name).toLowerCase())).size,
+      reviews: revs.length,
+      avg_chili: revs.length ? Math.round((chili / revs.length) * 10) / 10 : null,
+    };
+  };
+  const cur = orders.filter(inCur);
+  const prev = inPrev ? orders.filter(inPrev) : null;
+  const revCur = reviews.filter(inCur);
+  const revPrev = inPrev ? reviews.filter(inPrev) : null;
+  const current = metrics(cur, revCur);
+  const previous = prev ? metrics(prev, revPrev) : null;
+  const change = previous ? Object.fromEntries(["orders", "revenue", "avg_order_value", "items", "customers", "reviews"].map((k) => [k, pctChange(current[k], previous[k])])) : null;
+
+  const slots = new Map(buckets.map((b) => [b.key, { ...b, orders: 0, revenue: 0, reviews: 0, chili: 0 }]));
+  for (const o of orders) {
+    const s = slots.get(bucketOf(o));
+    if (s && (rk === "today" ? inCur(o) : true)) (s.orders++, (s.revenue += Number(o.total) || 0));
+  }
+  for (const r of reviews) {
+    const s = slots.get(bucketOf(r));
+    if (s && (rk === "today" ? inCur(r) : true)) (s.reviews++, (s.chili += Number(r.chili_rating) || 0));
+  }
+  const series = [...slots.values()].map((s) => ({
+    key: s.key,
+    label: s.label,
+    orders: s.orders,
+    revenue: round2(s.revenue),
+    avg_order_value: s.orders ? round2(s.revenue / s.orders) : 0,
+    reviews: s.reviews,
+    avg_chili: s.reviews ? Math.round((s.chili / s.reviews) * 10) / 10 : null,
+  }));
+
+  // Top + worst sellers in the period (worst = visible, orderable dishes with the fewest sold, 0 included)
+  const byId = new Map(dishes.map((d) => [d.id, d]));
+  const qty = new Map();
+  const rev = new Map();
+  for (const o of cur)
+    for (const i of o.items || []) {
+      qty.set(i.dish_id, (qty.get(i.dish_id) || 0) + (Number(i.qty) || 0));
+      rev.set(i.dish_id, (rev.get(i.dish_id) || 0) + lineTotal(i));
+    }
+  const row = (id) => ({ id, name: byId.has(id) ? dishLabel(byId.get(id)) : "?", qty: qty.get(id) || 0, revenue: round2(rev.get(id) || 0), deleted: !byId.has(id) });
+  const top = [...qty.keys()].sort((a, b) => qty.get(b) - qty.get(a) || rev.get(b) - rev.get(a)).slice(0, 5).map(row);
+  const topIds = new Set(top.map((d) => d.id));
+  const worst = dishes
+    .filter((d) => d.is_visible && d.category !== "expired" && !topIds.has(d.id))
+    .sort((a, b) => (qty.get(a.id) || 0) - (qty.get(b.id) || 0) || (rev.get(a.id) || 0) - (rev.get(b.id) || 0))
+    .slice(0, 5)
+    .map((d) => row(d.id));
+  const perHour = Array(24).fill(0);
+  for (const o of cur) perHour[hourOf(o.created_at)]++;
+
+  return { range: rk, compare: previous ? (rk === "today" ? "yesterday" : `previous ${n} days`) : null, current, previous, change, series, top_dishes: top, worst_dishes: worst, orders_per_hour: perHour };
+}
+
+/** Latest orders, reviews and new dishes as one feed, newest first (first names only). */
+function activityFeed({ dishes, reviews, orders, limit = 12 }) {
+  const byId = new Map(dishes.map((d) => [d.id, d]));
+  const events = [
+    ...orders.slice(0, limit).map((o) => ({
+      type: "order",
+      at: o.created_at,
+      text: `#${o.order_number} · ${firstName(o.customer_name)} ordered ${(o.items || []).reduce((n, i) => n + (Number(i.qty) || 0), 0)} item(s)`,
+      amount: Number(o.total) || 0,
+      id: o.id,
+    })),
+    ...reviews.slice(0, limit).map((r) => ({
+      type: "review",
+      at: r.created_at,
+      text: `${firstName(r.author_name)} rated ${byId.has(r.dish_id) ? dishLabel(byId.get(r.dish_id)) : "a deleted dish"} ${r.chili_rating}/5`,
+      chili: Number(r.chili_rating) || 0,
+      id: r.id,
+    })),
+    ...dishes
+      .filter((d) => d.created_at)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .slice(0, 3) // menu edits are rarer than orders; don't let a bulk import flood the feed
+      .map((d) => ({ type: "dish", at: d.created_at, text: `New dish: ${dishLabel(d)}${d.is_visible ? "" : " (hidden)"}`, id: d.id })),
+  ];
+  return events.sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, limit);
+}
+
+// Excel needs the BOM to read UTF-8 (Arabic). Formula-like cells are prefixed so they open as text.
+function toCsv(rows) {
+  const cell = (val) => {
+    let s = String(val ?? "");
+    if (typeof val === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return "﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n");
+}
+function ordersCsv(orders) {
+  const line = (i) => `${i.qty}x ${i.name_en || i.name_ar} (${i.size})${i.addons?.length ? ` + ${i.addons.join(", ")}` : ""}`;
+  const header = ["order_number", "created_at", "customer_name", "payment_method", "items", "item_count", "subtotal", "fees", "total", "note"];
+  return toCsv([
+    header,
+    ...orders.map((o) => [
+      o.order_number,
+      o.created_at,
+      o.customer_name,
+      o.payment_method,
+      (o.items || []).map(line).join(" | "),
+      (o.items || []).reduce((n, i) => n + (Number(i.qty) || 0), 0),
+      Number(o.subtotal),
+      round2((o.fees || []).reduce((s, f) => s + (Number(f.amount) || 0), 0)),
+      Number(o.total),
+      o.note || "",
+    ]),
+  ]);
+}
+
 // Dashboard numbers in one pass over orders and one over reviews
-function computeStats({ dishes, reviews, orders, tz, now = Date.now(), photoUrl }) {
+function computeStats({ dishes, reviews, orders, tz, now = Date.now(), photoUrl, range }) {
   const dayOf = dayKeyer(tz);
   const days = lastDays(14, tz, now);
   const today = days[days.length - 1];
@@ -199,6 +389,9 @@ function computeStats({ dishes, reviews, orders, tz, now = Date.now(), photoUrl 
     top_payment_method: summary.top_payment_method,
     latest_reviews: reviews.slice(0, 5).map((r) => ({ ...r, dish_name: byId.has(r.dish_id) ? dishLabel(byId.get(r.dish_id)) : "?" })),
     needs_attention: attention,
+    dishes_without_description: dishes.filter((d) => !String(d.description || "").trim()).length,
+    period: periodStats({ dishes, reviews, orders, range, tz, now }),
+    activity: activityFeed({ dishes, reviews, orders }),
   };
 }
 
@@ -324,7 +517,17 @@ function adminRouter(db, { password, sessionSecret, secureCookies, ai }) {
   router.get("/stats", async (req, res) => {
     const [dishes, reviews, orders] = await Promise.all([db.listDishes(), db.listReviews(), db.listOrders()]);
     const tz = typeof req.query.tz === "string" ? req.query.tz.slice(0, 64) : undefined;
-    res.json(computeStats({ dishes, reviews, orders, tz, photoUrl: (p) => db.photoUrl(p) }));
+    const range = typeof req.query.range === "string" ? req.query.range : "7d";
+    res.json(computeStats({ dishes, reviews, orders, tz, range, photoUrl: (p) => db.photoUrl(p) }));
+  });
+
+  // CSV download of the orders in a range (the chef assistant links here; the cookie authenticates it)
+  router.get("/orders.csv", async (req, res) => {
+    const range = RANGES[req.query.range] ? req.query.range : "all";
+    const tz = typeof req.query.tz === "string" ? req.query.tz.slice(0, 64) : undefined;
+    const list = ordersInRange(await db.listOrders(), range, tz);
+    res.set("Content-Disposition", `attachment; filename="zesty-orders-${range}-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.type("text/csv; charset=utf-8").send(ordersCsv(list));
   });
 
   router.get("/dishes", async (req, res) => {
@@ -525,6 +728,11 @@ module.exports = {
   computeStats,
   orderSummary,
   ordersInRange,
+  periodStats,
+  activityFeed,
+  salesBy,
+  WEEKDAYS,
+  firstName,
   dayKeyer,
   dishFields,
   dishLabel,

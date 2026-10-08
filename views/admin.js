@@ -102,8 +102,10 @@ function switchTab(name) {
   currentTab = name;
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
   $$(".tab-panel").forEach((p) => (p.hidden = p.id !== `tab-${name}`));
+  $$(".tab").forEach((t) => (t.dataset.tab === name ? t.setAttribute("aria-current", "page") : t.removeAttribute("aria-current")));
   history.replaceState(null, "", `#${name}`);
   LOADERS[name]().catch(fail);
+  renderChefChips();
 }
 const LOADERS = { overview: () => loadOverview(), dishes: () => loadDishes(), reviews: () => loadReviews(), orders: () => loadOrders(), settings: () => loadSettings() };
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
@@ -125,126 +127,235 @@ $$("[data-theme-set]").forEach((b) => b.addEventListener("click", () => setTheme
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => themeMode() === "system" && applyTheme("system"));
 
 // ---- Overview ----
-const kpi = (label, value, sub = "") => `<div class="kpi"><span class="kpi-label">${label}</span><strong class="kpi-value">${value}</strong>${sub ? `<small>${sub}</small>` : ""}</div>`;
+const PERIOD_KEY = "zk_admin_period";
+const PERIOD_LABELS = { today: "today", "7d": "last 7 days", "30d": "last 30 days", all: "all time" };
 const shortDay = (day) => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+const weekdayOf = (day) => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" });
 const hourLabel = (h) => `${String(h).padStart(2, "0")}:00`;
-
-function vbars(points, { label, fmt = (n) => n, title }) {
-  const max = Math.max(1, ...points.map((p) => p.value));
-  return `<div class="vbars" role="img" aria-label="${esc(label)}">
-    ${points
-      .map(
-        (p) => `<div class="vbar" title="${esc(p.title)}: ${esc(fmt(p.value))}"><span class="vbar-n">${p.value ? esc(p.short ?? fmt(p.value)) : ""}</span><span class="vbar-fill${p.hot ? " hot" : ""}" style="height:${Math.round((p.value / max) * 100)}%"></span><span class="vbar-day">${esc(p.tick)}</span></div>`,
-      )
-      .join("")}
-  </div>${title ? `<p class="hint">${title}</p>` : ""}`;
-}
 const compact = (n) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(Math.round(n)));
+const tzParam = () => encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "");
+let period = null;
+
+// "3 min ago" / "yesterday" / "5 Oct"
+function relTime(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.round(h / 24);
+  if (d === 1) return "yesterday";
+  if (d < 7) return `${d} days ago`;
+  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+const timeTag = (iso) => `<time datetime="${esc(iso)}" title="${esc(when(iso))}">${esc(relTime(iso))}</time>`;
+
+function sparkline(values, { label }) {
+  const v = values.map((x) => Number(x) || 0);
+  if (v.length < 2 || !v.some(Boolean)) return `<svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true"><line x1="0" y1="26" x2="100" y2="26"/></svg>`;
+  const max = Math.max(...v);
+  const pts = v.map((x, i) => `${Math.round((i / (v.length - 1)) * 1000) / 10},${Math.round((26 - (x / max) * 22) * 10) / 10}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" role="img" aria-label="${esc(label)}"><polyline points="${pts}"/></svg>`;
+}
+
+function deltaPill(pct, prevLabel) {
+  if (pct === null || pct === undefined) return `<span class="delta flat" title="Nothing to compare with">—</span>`;
+  const up = pct > 0;
+  const cls = pct === 0 ? "flat" : up ? "up" : "down";
+  return `<span class="delta ${cls}" title="vs ${esc(prevLabel)}">${pct === 0 ? "±0%" : `${up ? "▲" : "▼"} ${Math.abs(pct)}%`}<span class="sr-only"> vs ${esc(prevLabel)}</span></span>`;
+}
+
+function kpiCard({ label, value, sub, delta, prev, spark, primary }) {
+  return `<article class="kpi${primary ? " kpi-primary" : ""}">
+    <div class="kpi-top"><span class="kpi-label">${label}</span>${delta}</div>
+    <strong class="kpi-value">${value}</strong>
+    <div class="kpi-foot"><small>${sub}</small>${prev ? `<small class="kpi-prev">${prev}</small>` : ""}</div>
+    ${spark}
+  </article>`;
+}
+
+// Bar chart with a y-axis, gridlines and focusable bars (tooltip on hover and keyboard focus)
+function barChart(points, { label, fmt = (n) => n, every = 1 }) {
+  const max = Math.max(1, ...points.map((p) => p.value));
+  const pow = 10 ** Math.floor(Math.log10(max));
+  const nice = Math.ceil(max / pow) * pow;
+  return `<figure class="chart" aria-label="${esc(label)}">
+    <div class="chart-axis" aria-hidden="true"><span>${esc(compact(nice))}</span><span>${esc(compact(nice / 2))}</span><span>0</span></div>
+    <div class="chart-plot" role="list">
+      ${points
+        .map(
+          (p, i) => `<div class="cbar${p.hot ? " hot" : ""}" role="listitem" tabindex="0" aria-label="${esc(p.title)}: ${esc(fmt(p.value))}${p.extra ? `, ${esc(p.extra)}` : ""}">
+            <span class="cbar-fill" style="height:${Math.round((p.value / nice) * 100)}%"></span>
+            <span class="cbar-tick" aria-hidden="true">${i % every === 0 ? esc(p.tick) : ""}</span>
+            <span class="tip" aria-hidden="true"><b>${esc(p.title)}</b><br>${esc(fmt(p.value))}${p.extra ? ` · ${esc(p.extra)}` : ""}</span>
+          </div>`,
+        )
+        .join("")}
+    </div>
+  </figure>`;
+}
+
+const empty = (text, action = "") => `<div class="empty"><p>${text}</p>${action}</div>`;
+
+function setPeriod(p) {
+  period = p;
+  store.set(PERIOD_KEY, p);
+  $$("[data-period]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.period === p);
+    b.setAttribute("aria-pressed", String(b.dataset.period === p));
+  });
+  $("#quick-csv").href = `/api/admin/orders.csv?range=${encodeURIComponent(p)}&tz=${tzParam()}`;
+}
+$$("[data-period]").forEach((b) => b.addEventListener("click", () => (setPeriod(b.dataset.period), loadOverview().catch(fail))));
 
 async function loadOverview() {
-  $("#overview").innerHTML = `<p class="state">Loading…</p>`;
+  if (!period) setPeriod(["today", "7d", "30d", "all"].includes(store.get(PERIOD_KEY)) ? store.get(PERIOD_KEY) : "7d");
+  if (!$("#overview").children.length) $("#overview").innerHTML = `<p class="state">Loading…</p>`;
+  $("#overview").setAttribute("aria-busy", "true");
   loadAiStatus();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-  const s = await api(`/api/admin/stats?tz=${encodeURIComponent(tz)}`);
-  const maxTop = Math.max(1, ...s.top_dishes.map((d) => d.qty));
-  const pay = s.top_payment_method;
-  const peak = s.busiest_hour;
+  const s = await api(`/api/admin/stats?tz=${tzParam()}&range=${encodeURIComponent(period)}`);
+  $("#overview").removeAttribute("aria-busy");
+  const P = s.period;
+  const c = P.current;
+  const prevLabel = P.compare || "";
+  const prevTxt = (val) => (P.previous ? `${P.compare}: ${val}` : "");
+  const series = P.series;
+  const isToday = P.range === "today";
+  const peak = P.orders_per_hour.reduce((best, n, h) => (n > best.n ? { h, n } : best), { h: null, n: 0 });
+  const chiliTxt = c.avg_chili == null ? "–" : `${c.avg_chili} 🌶️`;
+  const sentiment = c.avg_chili == null ? "no reviews in this period" : c.avg_chili >= 4 ? "they love it 🔥" : c.avg_chili >= 3 ? "mixed feelings 😐" : "haters assembled 🧊";
+
+  const kpis = [
+    kpiCard({ primary: true, label: "💸 Revenue", value: egp(c.revenue), sub: PERIOD_LABELS[P.range], delta: deltaPill(P.change?.revenue, prevLabel), prev: prevTxt(egp(P.previous?.revenue)), spark: sparkline(series.map((x) => x.revenue), { label: "Revenue trend" }) }),
+    kpiCard({ label: "🧾 Orders", value: c.orders, sub: `${c.items} items · ${c.customers} customer${c.customers === 1 ? "" : "s"}`, delta: deltaPill(P.change?.orders, prevLabel), prev: prevTxt(P.previous?.orders), spark: sparkline(series.map((x) => x.orders), { label: "Orders trend" }) }),
+    kpiCard({ label: "🧮 Avg order", value: egp(c.avg_order_value), sub: "per order", delta: deltaPill(P.change?.avg_order_value, prevLabel), prev: prevTxt(egp(P.previous?.avg_order_value)), spark: sparkline(series.map((x) => x.avg_order_value), { label: "Average order trend" }) }),
+    kpiCard({ label: "🌶️ Rating", value: chiliTxt, sub: `${c.reviews} review${c.reviews === 1 ? "" : "s"} · ${sentiment}`, delta: deltaPill(P.change?.reviews, prevLabel), prev: prevTxt(`${P.previous?.reviews} reviews`), spark: sparkline(series.map((x) => x.reviews), { label: "Reviews trend" }) }),
+  ].join("");
+
+  const health = [
+    { n: `${s.dishes_visible}/${s.dishes_total}`, label: "on the menu", filter: "visible" },
+    { n: s.dishes_hidden, label: "hidden", filter: "hidden" },
+    { n: s.dishes_without_photo, label: "without photo", filter: "no_photo", warn: true },
+    { n: s.dishes_without_description, label: "without description", filter: "no_description", warn: true },
+  ]
+    .map((h) => `<button type="button" class="health${h.warn && Number(h.n) ? " warn" : ""}" data-dish-filter="${h.filter}"><b>${esc(h.n)}</b> ${h.label}</button>`)
+    .join("");
+
+  const chartPoints = series.map((x) => ({
+    value: x.revenue,
+    title: isToday ? x.label : `${weekdayOf(x.key)} ${shortDay(x.key)}`,
+    tick: isToday ? String(x.key) : shortDay(x.key),
+    extra: `${x.orders} order${x.orders === 1 ? "" : "s"}`,
+  }));
+  const anyRevenue = series.some((x) => x.revenue);
+  const revenueTitle = isToday ? "Revenue by hour, today" : P.range === "all" ? "Revenue, last 30 days" : `Revenue per day, ${PERIOD_LABELS[P.range]}`;
+
+  const dishRows = (list, { worst } = {}) => {
+    const max = Math.max(1, ...list.map((d) => d.qty));
+    return `<ol class="rank">${list
+      .map(
+        (d, i) => `<li><span class="rank-n">${i + 1}</span><span class="rank-name" dir="auto" title="${esc(d.name)}">${esc(d.name)}${d.deleted ? " <small>(deleted)</small>" : ""}</span>
+        <span class="hbar${worst ? " cold" : ""}" aria-hidden="true"><span style="width:${Math.round((d.qty / max) * 100)}%"></span></span>
+        <span class="rank-v"><b>${d.qty}</b> <small>${egp(d.revenue)}</small></span></li>`,
+      )
+      .join("")}</ol>`;
+  };
+
+  const ICON = { order: "🧾", review: "💬", dish: "✨" };
+  const activity = (s.activity || [])
+    .map(
+      (e) => `<li class="act act-${e.type}"><span class="act-ico" aria-hidden="true">${ICON[e.type]}</span>
+      <span class="act-text" dir="auto">${esc(e.text)}${e.type === "order" ? ` · <b>${egp(e.amount)}</b>` : ""}${e.type === "review" ? ` ${"🌶️".repeat(e.chili)}` : ""}</span>
+      ${timeTag(e.at)}</li>`,
+    )
+    .join("");
+
+  // Needs attention grouped by issue: counts first, names on demand
+  const groups = {};
+  for (const d of s.needs_attention) for (const i of d.issues) (groups[i] ||= []).push(d);
+  const attention = Object.entries(groups)
+    .map(
+      ([issue, list]) => `<details class="issue-group">
+        <summary><span class="tag">${ISSUE_LABELS[issue] || esc(issue)}</span> <b>${list.length}</b> dish${list.length === 1 ? "" : "es"}</summary>
+        <ul class="mini-list">${list.map((d) => `<li class="row-between"><span>${nameHtml(d)}</span><button class="btn small ghost" type="button" data-fix="${esc(d.id)}">Fix</button></li>`).join("")}</ul>
+      </details>`,
+    )
+    .join("");
+
   const dist = s.chili_distribution || {};
   const distMax = Math.max(1, ...Object.values(dist));
-  const sentiment = s.avg_chili == null ? "no reviews yet" : s.avg_chili >= 4 ? "they love it 🔥" : s.avg_chili >= 3 ? "mixed feelings 😐" : "haters assembled 🧊";
-  const rated = (list) => list.map((d) => `<li class="row-between"><span dir="auto">${esc(d.name)}</span><span><b>${d.avg}</b> 🌶️ <small>(${d.reviews})</small></span></li>`).join("");
+  const rated = (list) => list.map((d) => `<li><span dir="auto">${esc(d.name)}</span><span><b>${d.avg}</b> 🌶️ <small>(${d.reviews})</small></span></li>`).join("");
 
   $("#overview").innerHTML = `
-    <div class="kpis">
-      ${kpi("📅 Orders today", s.orders_today, egp(s.revenue_today))}
-      ${kpi("🗓️ Last 7 days", s.orders_7d, egp(s.revenue_7d))}
-      ${kpi("🧾 All orders", s.total_orders, egp(s.revenue))}
-      ${kpi("🧮 Avg order", egp(s.avg_order_value))}
-      ${kpi("⏰ Busiest hour", peak ? hourLabel(peak.hour) : "–", peak ? `${peak.count} order${peak.count === 1 ? "" : "s"}` : "no orders yet")}
-      ${kpi("🌶️ Avg chili", s.avg_chili ?? "–", `${s.reviews_count} reviews · ${sentiment}`)}
-      ${kpi("👁 Dishes", `${s.dishes_visible} / ${s.dishes_total}`, `${s.dishes_hidden} hidden`)}
-      ${kpi("📸 No photo", s.dishes_without_photo, "dishes")}
-    </div>
-    <div class="ov-grid">
-      <section class="card">
-        <h3>💸 Revenue, last 14 days</h3>
-        ${vbars(
-          s.orders_per_day.map((d) => ({ value: d.revenue || 0, title: shortDay(d.day), tick: d.day.slice(8), short: compact(d.revenue || 0) })),
-          { label: "Revenue per day for the last 14 days", fmt: egp, title: `📈 ${s.orders_per_day.reduce((n, d) => n + d.count, 0)} orders in 14 days` },
-        )}
+    <div class="kpi-grid">${kpis}</div>
+    <div class="health-row" role="group" aria-label="Menu health">${health}</div>
+    <div class="dash-grid">
+      <section class="card span-2" aria-labelledby="h-rev">
+        <div class="card-head"><h3 id="h-rev">📈 ${revenueTitle}</h3><small>${c.orders} order${c.orders === 1 ? "" : "s"} · ${egp(c.revenue)}</small></div>
+        ${anyRevenue ? barChart(chartPoints, { label: revenueTitle, fmt: egp, every: series.length > 14 ? 5 : isToday ? 3 : 1 }) : empty("No orders in this period yet. Share the menu link and wait for the chaos 🌶️", `<a class="btn small ghost" href="/" target="_blank" rel="noopener">↗ Open the menu</a>`)}
       </section>
-      <section class="card">
-        <h3>⏰ Orders by hour</h3>
-        ${vbars(
-          (s.orders_per_hour || Array(24).fill(0)).map((n, h) => ({ value: n, title: hourLabel(h), tick: h % 3 === 0 ? String(h) : "", hot: peak && h === peak.hour })),
-          { label: "Orders per hour of the day", title: `💳 Most used payment: ${pay ? `<strong>${esc(PAYMENT_LABELS[pay.method] || pay.method)}</strong> (${pay.count}×)` : "–"}` },
-        )}
+      <section class="card feed-card" aria-labelledby="h-act">
+        <div class="card-head"><h3 id="h-act">⚡ Recent activity</h3></div>
+        ${activity ? `<ul class="feed">${activity}</ul>` : empty("Nothing happened yet. Suspiciously quiet.")}
       </section>
-      <section class="card">
-        <h3>🏆 Top 5 dishes</h3>
-        ${
-          s.top_dishes.length
-            ? `<ol class="hbars">${s.top_dishes
-                .map(
-                  (d) => `<li><span class="hbar-label" dir="auto">${esc(d.name)}${d.deleted ? " <small>(deleted)</small>" : ""}</span>
-                  <span class="hbar"><span style="width:${Math.round((d.qty / maxTop) * 100)}%"></span></span><b>${d.qty}</b></li>`,
-                )
-                .join("")}</ol>`
-            : `<p class="state">No orders yet. Share the menu link and wait for the chaos.</p>`
-        }
+      <section class="card" aria-labelledby="h-top">
+        <div class="card-head"><h3 id="h-top">🏆 Top dishes</h3><small>${PERIOD_LABELS[P.range]}</small></div>
+        ${P.top_dishes.length ? dishRows(P.top_dishes) : empty("No sales in this period.")}
       </section>
-      <section class="card">
-        <h3>👑 Top customers</h3>
+      <section class="card" aria-labelledby="h-worst">
+        <div class="card-head"><h3 id="h-worst">🧊 Need a push</h3><small>fewest sold</small></div>
+        ${P.worst_dishes.length ? dishRows(P.worst_dishes, { worst: true }) : empty("Every dish is selling. Who are you? 👀")}
+      </section>
+      <section class="card" aria-labelledby="h-hour">
+        <div class="card-head"><h3 id="h-hour">⏰ Orders by hour</h3><small>${peak.n ? `peak ${hourLabel(peak.h)}` : ""}</small></div>
+        ${peak.n ? barChart(P.orders_per_hour.map((n, h) => ({ value: n, title: hourLabel(h), tick: String(h), hot: h === peak.h })), { label: "Orders per hour of the day", fmt: (n) => `${n} order${n === 1 ? "" : "s"}`, every: 6 }) : empty("No orders yet in this period.")}
+      </section>
+      <section class="card" aria-labelledby="h-cust">
+        <div class="card-head"><h3 id="h-cust">👑 Top customers</h3><small>all time · first names</small></div>
         ${
           (s.top_customers || []).length
-            ? `<div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Name</th><th scope="col">Orders</th><th scope="col">Spent</th></tr></thead><tbody>${s.top_customers
-                .map((c, i) => `<tr><td dir="auto">${["🥇", "🥈", "🥉"][i] || "🍽️"} ${esc(c.name)}</td><td>${c.orders}</td><td>${egp(c.total)}</td></tr>`)
-                .join("")}</tbody></table></div><p class="hint">First names only.</p>`
-            : `<p class="state">No customers yet.</p>`
+            ? `<div class="table-wrap"><table class="data-table num"><thead><tr><th scope="col">Name</th><th scope="col">Orders</th><th scope="col">Spent</th></tr></thead><tbody>${s.top_customers
+                .map((cu, i) => `<tr><td dir="auto">${["🥇", "🥈", "🥉"][i] || "🍽️"} ${esc(cu.name)}</td><td>${cu.orders}</td><td>${egp(cu.total)}</td></tr>`)
+                .join("")}</tbody></table></div>`
+            : empty("No customers yet.")
         }
       </section>
-      <section class="card">
-        <h3>🌶️ Review sentiment</h3>
+      <section class="card" aria-labelledby="h-sent">
+        <div class="card-head"><h3 id="h-sent">🌶️ Review sentiment</h3><small>all time · ${s.reviews_count} reviews</small></div>
         ${
           s.reviews_count
             ? `<ol class="hbars chili-bars">${[5, 4, 3, 2, 1]
-                .map((c) => `<li><span class="hbar-label">${"🌶️".repeat(c)}</span><span class="hbar"><span style="width:${Math.round(((dist[c] || 0) / distMax) * 100)}%"></span></span><b>${dist[c] || 0}</b></li>`)
+                .map((n) => `<li><span class="hbar-label">${n} 🌶️</span><span class="hbar" aria-hidden="true"><span style="width:${Math.round(((dist[n] || 0) / distMax) * 100)}%"></span></span><b>${dist[n] || 0}</b></li>`)
                 .join("")}</ol>
               <div class="rated">
-                <div><small class="kpi-label">🔥 Best rated</small><ul class="mini-list">${rated(s.best_rated || [])}</ul></div>
-                <div><small class="kpi-label">🧊 Worst rated</small><ul class="mini-list">${rated(s.worst_rated || [])}</ul></div>
+                <div><small class="kpi-label">🔥 Best rated</small><ul class="mini-list pairs">${rated(s.best_rated || [])}</ul></div>
+                <div><small class="kpi-label">🧊 Worst rated</small><ul class="mini-list pairs">${rated(s.worst_rated || []) || "<li><small>–</small></li>"}</ul></div>
               </div>`
-            : `<p class="state">No reviews yet.</p>`
+            : empty("No reviews yet. They'll show up when people start roasting the dishes.")
         }
       </section>
-      <section class="card">
-        <h3>💬 Latest reviews</h3>
-        ${
-          s.latest_reviews.length
-            ? `<ul class="mini-list">${s.latest_reviews
-                .map(
-                  (r) => `<li><strong dir="auto">${esc(r.author_name)}</strong> on <em dir="auto">${esc(r.dish_name)}</em> · ${"🌶️".repeat(r.chili_rating)}
-                  <p dir="auto">${esc(r.body)}</p><small>${esc(when(r.created_at))}</small></li>`,
-                )
-                .join("")}</ul>`
-            : `<p class="state">No reviews yet.</p>`
-        }
-      </section>
-      <section class="card wide">
-        <div class="row-between"><h3>⚠️ Needs attention</h3>${s.needs_attention.length ? `<button class="btn small ghost" type="button" data-chef-run="find_issues">👨‍🍳 Ask the chef</button>` : ""}</div>
-        ${
-          s.needs_attention.length
-            ? `<ul class="mini-list">${s.needs_attention
-                .map(
-                  (d) => `<li class="row-between"><span>${nameHtml(d)}<br>${d.issues.map((i) => `<span class="tag">${ISSUE_LABELS[i] || esc(i)}</span>`).join(" ")}</span>
-                  <button class="btn small ghost" data-fix="${esc(d.id)}">Fix</button></li>`,
-                )
-                .join("")}</ul>`
-            : `<p class="state">All dishes have a photo and a description. Chef's kiss 🤌</p>`
-        }
+      <section class="card" aria-labelledby="h-att">
+        <div class="card-head"><h3 id="h-att">⚠️ Needs attention</h3>${s.needs_attention.length ? `<button class="btn small ghost" type="button" data-chef-run="find_issues">👨‍🍳 Ask the chef</button>` : ""}</div>
+        ${attention || empty("All dishes have a photo and a description. Chef's kiss 🤌")}
       </section>
     </div>`;
 }
+$("#refresh-overview").addEventListener("click", () => loadOverview().catch(fail));
+$("[data-quick=new-dish]").addEventListener("click", () => openDish(null));
+$("#overview").addEventListener("click", async (e) => {
+  const filter = e.target.closest("[data-dish-filter]")?.dataset.dishFilter;
+  if (filter) {
+    $("#dish-search").value = $("#dish-cat").value = "";
+    $("#dish-vis").value = filter;
+    return switchTab("dishes");
+  }
+  const id = e.target.closest("[data-fix]")?.dataset.fix;
+  if (!id) return;
+  dishes = await api("/api/admin/dishes").catch((err) => (fail(err), dishes));
+  const dish = dishes.find((d) => d.id === id);
+  if (dish) openDish(dish);
+});
 
 // ---- 🤖 AI status card ----
 const ago2 = (iso) => {
@@ -296,14 +407,6 @@ $("#ai-test").addEventListener("click", async (e) => {
     btn.textContent = "⚡ Test AI";
   }
 });
-$("#refresh-overview").addEventListener("click", () => loadOverview().catch(fail));
-$("#overview").addEventListener("click", async (e) => {
-  const id = e.target.closest("[data-fix]")?.dataset.fix;
-  if (!id) return;
-  dishes = await api("/api/admin/dishes").catch((err) => (fail(err), dishes));
-  const dish = dishes.find((d) => d.id === id);
-  if (dish) openDish(dish);
-});
 
 // ---- Dishes ----
 const dishFilters = () => ({ q: $("#dish-search").value.trim().toLowerCase(), cat: $("#dish-cat").value, vis: $("#dish-vis").value, sort: $("#dish-sort").value });
@@ -332,12 +435,18 @@ async function loadDishes() {
   renderDishes();
 }
 
+const VIS_FILTERS = {
+  visible: (d) => Boolean(d.is_visible),
+  hidden: (d) => !d.is_visible,
+  no_photo: (d) => !d.photo_url,
+  no_description: (d) => !String(d.description || "").trim(),
+};
 function visibleDishRows() {
   const { q, cat, vis, sort } = dishFilters();
   const rows = dishes.filter(
     (d) =>
       (!cat || d.category === cat) &&
-      (!vis || (vis === "visible") === Boolean(d.is_visible)) &&
+      (!vis || VIS_FILTERS[vis]?.(d)) &&
       (!q || [d.name_ar, d.name_en, d.job_title, d.catchphrase].some((x) => String(x || "").toLowerCase().includes(q))),
   );
   return DISH_SORTS[sort] ? rows.sort(DISH_SORTS[sort]) : rows;
@@ -1186,6 +1295,7 @@ function renderReviews() {
   const rows = visibleReviewRows();
   $("#review-list").innerHTML =
     rows
+      .slice(0, reviewLimit)
       .map((r) => {
         const reactions = Object.entries(r.reactions || {})
           .filter(([, n]) => n > 0)
@@ -1209,6 +1319,9 @@ function renderReviews() {
       </li>`;
       })
       .join("") || `<li class="state">${reviews.length ? "No reviews match these filters." : "No reviews yet. They'll show up here when people start roasting the dishes."}</li>`;
+  const more = $("#review-more");
+  more.hidden = rows.length <= reviewLimit;
+  more.textContent = `Load more (${rows.length - reviewLimit} left)`;
   const avg = rows.length ? Math.round((rows.reduce((n, r) => n + r.chili_rating, 0) / rows.length) * 10) / 10 : null;
   $("#review-summary").textContent = rows.length ? `${rows.length} review${rows.length === 1 ? "" : "s"} · avg ${avg} 🌶️ · ${reviews.filter((r) => r.highlighted).length} highlighted ⭐` : "";
   $("#review-export").disabled = rows.length === 0;
@@ -1224,7 +1337,18 @@ function syncReviewBulk(rows = visibleReviewRows()) {
   all.indeterminate = !all.checked && rows.some((r) => selectedReviews.has(r.id));
 }
 
-["#review-search", "#review-dish", "#review-sort", "#review-show"].forEach((sel) => $(sel).addEventListener("input", renderReviews));
+const PAGE = 30;
+let reviewLimit = PAGE;
+["#review-search", "#review-dish", "#review-sort", "#review-show"].forEach((sel) =>
+  $(sel).addEventListener("input", () => {
+    reviewLimit = PAGE;
+    renderReviews();
+  }),
+);
+$("#review-more").addEventListener("click", () => {
+  reviewLimit += PAGE;
+  renderReviews();
+});
 const replies = new Map(); // review id -> AI reply text (this session only, not saved)
 $("#review-all").addEventListener("change", (e) => {
   visibleReviewRows().forEach((r) => (e.target.checked ? selectedReviews.add(r.id) : selectedReviews.delete(r.id)));
@@ -1325,7 +1449,7 @@ const dayKey = (iso) => {
 };
 
 async function loadOrders() {
-  if (!orders.length) loading("#order-list");
+  if (!orders.length) $("#order-table").innerHTML = `<tbody><tr><td class="state">Loading…</td></tr></tbody>`;
   orders = await api("/api/admin/orders");
   const counts = new Map();
   for (const o of orders) {
@@ -1351,6 +1475,7 @@ function visibleOrderRows() {
   let since = 0;
   if (orderRange === "today") since = new Date().setHours(0, 0, 0, 0);
   if (orderRange === "7d") since = new Date().setHours(0, 0, 0, 0) - 6 * 24 * 60 * 60 * 1000;
+  if (orderRange === "30d") since = new Date().setHours(0, 0, 0, 0) - 29 * 24 * 60 * 60 * 1000;
   return orders.filter(
     (o) =>
       (!since || new Date(o.created_at).getTime() >= since) &&
@@ -1383,41 +1508,81 @@ function renderOrders() {
     .map(([k, d]) => `<tr><td>${esc(new Date(`${k}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))}</td><td>${d.n}</td><td>${d.items}</td><td>${egp(d.total)}</td></tr>`)
     .join("")}</tbody><tfoot><tr><th scope="row">Total</th><td>${rows.length}</td><td>${[...perDay.values()].reduce((n, d) => n + d.items, 0)}</td><td>${egp(sum)}</td></tr></tfoot>`;
 
-  $("#order-list").innerHTML =
-    rows
-      .map(
-        (o) => `
-      <li>
-        <details class="grow">
-          <summary>
-            <strong>#${esc(o.order_number)}</strong> by <span dir="auto">${esc(o.customer_name)}</span> · ${egp(o.total)} · ${esc(PAYMENT_LABELS[o.payment_method] || o.payment_method)}
-            <small>${esc(when(o.created_at))} · ${(o.items || []).reduce((n, i) => n + Number(i.qty || 0), 0)} items</small>
-          </summary>
-          <ul class="order-items">${(o.items || []).map((i) => `<li dir="auto">${esc(itemLine(i))} · ${egp(i.unit_price * i.qty)}</li>`).join("")}</ul>
-          <p>Subtotal ${egp(o.subtotal)}${(o.fees || []).map((f) => ` · ${esc(f.en)} ${egp(f.amount)}`).join("")}</p>
-          ${o.note ? `<p dir="auto">📝 ${esc(o.note)}</p>` : ""}
-        </details>
-        <div class="row-actions">
-          <button class="btn small ghost" data-receipt="${esc(o.id)}">🧾 Receipt</button>
-          <button class="btn small danger" data-delete-order="${esc(o.id)}" data-number="${esc(o.order_number)}">Delete</button>
-        </div>
-      </li>`,
-      )
-      .join("") || `<li class="state">${orders.length ? "No orders match. Try another range, customer or search." : "No orders yet."}</li>`;
+  renderOrderTable(rows);
 }
 
-$("#order-search").addEventListener("input", renderOrders);
-$("#order-customer").addEventListener("input", renderOrders);
+// Sortable, paged orders table (sticky header). On phones the rows become cards (CSS).
+let orderSort = { key: "date", dir: "desc" };
+let orderLimit = PAGE;
+const ORDER_COLS = [
+  { key: "number", label: "#", get: (o) => Number(o.order_number) },
+  { key: "date", label: "Date", get: (o) => o.created_at },
+  { key: "customer", label: "Customer", get: (o) => String(o.customer_name || "").toLowerCase() },
+  { key: "items", label: "Items", get: (o) => (o.items || []).reduce((n, i) => n + Number(i.qty || 0), 0) },
+  { key: "payment", label: "Payment", get: (o) => o.payment_method },
+  { key: "total", label: "Total", get: (o) => Number(o.total) },
+];
+function renderOrderTable(rows) {
+  const col = ORDER_COLS.find((c) => c.key === orderSort.key) || ORDER_COLS[1];
+  const dir = orderSort.dir === "asc" ? 1 : -1;
+  const sorted = [...rows].sort((x, y) => {
+    const a = col.get(x);
+    const b = col.get(y);
+    return (a > b ? 1 : a < b ? -1 : 0) * dir;
+  });
+  const shown = sorted.slice(0, orderLimit);
+  const head = ORDER_COLS.map((c) => {
+    const on = c.key === orderSort.key;
+    const aria = on ? (orderSort.dir === "asc" ? "ascending" : "descending") : "none";
+    return `<th scope="col" aria-sort="${aria}" class="col-${c.key}"><button type="button" class="th-sort" data-sort="${c.key}">${c.label}<span aria-hidden="true">${on ? (orderSort.dir === "asc" ? " ▲" : " ▼") : " ↕"}</span></button></th>`;
+  }).join("");
+  const body = shown
+    .map((o) => {
+      const n = (o.items || []).reduce((s2, i) => s2 + Number(i.qty || 0), 0);
+      const items = (o.items || []).map(itemLine).join(", ");
+      return `<tr>
+        <td class="col-number" data-label="#"><strong>#${esc(o.order_number)}</strong></td>
+        <td class="col-date" data-label="Date">${timeTag(o.created_at)}<small class="sub">${esc(when(o.created_at))}</small></td>
+        <td class="col-customer" data-label="Customer" dir="auto">${esc(o.customer_name)}${o.note ? ` <span title="${esc(o.note)}" aria-label="Note: ${esc(o.note)}">📝</span>` : ""}</td>
+        <td class="col-items" data-label="Items"><span class="clamp" dir="auto" title="${esc(items)}">${n} · ${esc(items)}</span></td>
+        <td class="col-payment" data-label="Payment">${esc(PAYMENT_LABELS[o.payment_method] || o.payment_method)}</td>
+        <td class="col-total" data-label="Total"><b>${egp(o.total)}</b></td>
+        <td class="col-actions"><div class="row-actions"><button class="btn small ghost" type="button" data-receipt="${esc(o.id)}">🧾 Receipt</button><button class="btn small danger" type="button" data-delete-order="${esc(o.id)}" data-number="${esc(o.order_number)}" aria-label="Delete order #${esc(o.order_number)}">Delete</button></div></td>
+      </tr>`;
+    })
+    .join("");
+  $("#order-table").innerHTML = `<thead><tr>${head}<th scope="col" class="col-actions"><span class="sr-only">Actions</span></th></tr></thead><tbody>${
+    body || `<tr><td colspan="7" class="state">${orders.length ? "No orders match. Try another range, customer or search." : "No orders yet. They show up here the second someone eats a coworker."}</td></tr>`
+  }</tbody>`;
+  const more = $("#order-more");
+  more.hidden = sorted.length <= orderLimit;
+  more.textContent = `Load more (${sorted.length - orderLimit} left)`;
+}
+$("#order-table").addEventListener("click", (e) => {
+  const key = e.target.closest("[data-sort]")?.dataset.sort;
+  if (!key) return;
+  orderSort = { key, dir: orderSort.key === key && orderSort.dir === "desc" ? "asc" : "desc" };
+  renderOrderTable(visibleOrderRows());
+  $(`#order-table [data-sort="${key}"]`)?.focus();
+});
+$("#order-more").addEventListener("click", () => {
+  orderLimit += PAGE;
+  renderOrderTable(visibleOrderRows());
+});
+
+const resetOrders = () => ((orderLimit = PAGE), renderOrders());
+$("#order-search").addEventListener("input", resetOrders);
+$("#order-customer").addEventListener("input", resetOrders);
 $$("[data-range]").forEach((btn) =>
   btn.addEventListener("click", () => {
     orderRange = btn.dataset.range;
     $$("[data-range]").forEach((b) => b.classList.toggle("active", b === btn));
-    renderOrders();
+    resetOrders();
   }),
 );
 
-$("#order-list").addEventListener("click", async (e) => {
-  const receiptId = e.target.dataset.receipt;
+$("#order-table").addEventListener("click", async (e) => {
+  const receiptId = e.target.closest("[data-receipt]")?.dataset.receipt;
   if (receiptId) return openReceipt(orders.find((o) => o.id === receiptId));
   const id = e.target.dataset.deleteOrder;
   if (!id || !confirm(`Delete order #${e.target.dataset.number}? It also stops counting on the leaderboard.`)) return;
@@ -1620,60 +1785,109 @@ function openShortcuts() {
 
 // ---- 👨‍🍳 Chef assistant ----
 const CHEF_KEY = "zk_chef_log";
+const CHEF_ID_KEY = "zk_chef_id";
 const CHEF_WIDE_KEY = "zk_chef_wide";
-let chefLog = []; // [{ role: "user"|"assistant", text, cards?, error? }]
+const CHEF_PIN_KEY = "zk_chef_pin";
+const PIN_MEDIA = matchMedia("(min-width: 1280px)");
+let chefLog = []; // [{ role: "user"|"assistant", text, cards?, ran?, error?, local? }]
 let chefBusy = false;
 let chefReady = false;
+let chefCanUndo = false;
+let chefTyping = null;
 const session = {
-  get() {
+  get(key = CHEF_KEY, fallback = []) {
     try {
-      return JSON.parse(sessionStorage.getItem(CHEF_KEY) || "[]");
+      const raw = sessionStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
     } catch {
-      return [];
+      return fallback;
     }
   },
-  set(v) {
+  set(v, key = CHEF_KEY) {
     try {
-      sessionStorage.setItem(CHEF_KEY, JSON.stringify(v.slice(-40)));
+      sessionStorage.setItem(key, JSON.stringify(key === CHEF_KEY ? v.slice(-40) : v));
     } catch {
       /* storage full or blocked: the chat just won't survive a reload */
     }
   },
 };
-const CHIPS = [
-  { label: "🔍 What needs fixing?", run: () => ["find_issues", {}] },
-  { label: "📊 Today's stats", run: () => ["order_stats", { range: "today" }] },
-  { label: "🗓️ This week", run: () => ["order_stats", { range: "7d" }] },
-  { label: "🙈 Hide sold-out", run: () => ["set_visibility", { badge: "sold_out", visible: false }] },
-  {
-    label: "✍️ Write copy for dishes missing descriptions",
-    run: () => {
-      const ids = dishes.filter((d) => !String(d.description || "").trim()).slice(0, 5).map((d) => d.id);
-      return ids.length ? ["write_dish_copy", { ids }] : null;
-    },
-    empty: "Every dish already has a description. Chef's kiss 🤌",
-  },
-  { label: "💡 Menu ideas", run: () => ["suggest_menu_ideas", { count: 3 }] },
-];
+// One id per browser tab: the server keeps this chat's undo stack under it
+const chefId = (() => {
+  let id = session.get(CHEF_ID_KEY, null);
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    session.set(id, CHEF_ID_KEY);
+  }
+  return id;
+})();
+
+// Suggested actions per tab. run = deterministic (works with the AI off), prompt = asks the AI.
+const missingCopy = () => dishes.filter((d) => !String(d.description || "").trim()).slice(0, 5).map((d) => d.id);
+const TAB_CHIPS = {
+  overview: [
+    { label: "📈 This week vs last", run: () => ["compare_periods", { range: "7d" }] },
+    { label: "📝 Weekly report", run: () => ["weekly_report", {}] },
+    { label: "📅 Best day of the week", run: () => ["sales_by_time", { by: "weekday", range: "all" }] },
+    { label: "🔍 What needs fixing?", run: () => ["find_issues", {}] },
+    { label: "🤔 Which dish sells best on Fridays?", prompt: "Which dish sells best on Fridays?" },
+  ],
+  dishes: [
+    { label: "🔥 Mark top 3 as popular", run: () => ["set_badges_by_rule", { badge: "popular", rule: "top_ordered", count: 3 }] },
+    { label: "↕️ Sort menu by popularity", run: () => ["sort_menu", { by: "popularity" }] },
+    { label: "🙈 Hide sold-out", run: () => ["set_visibility", { badge: "sold_out", visible: false }] },
+    { label: "✍️ Write missing descriptions", run: () => (missingCopy().length ? ["write_dish_copy", { ids: missingCopy() }] : null), empty: "Every dish already has a description. Chef's kiss 🤌", ai: true },
+    { label: "💸 Raise grills 10%", prompt: "Raise all grills prices by 10%, rounded to 5" },
+    { label: "💡 Menu ideas", run: () => ["suggest_menu_ideas", { count: 3 }], ai: true },
+  ],
+  reviews: [
+    { label: "🧊 Latest haters", run: () => ["list_reviews", { max_chili: 2, limit: 10 }] },
+    { label: "↩️ Draft replies to haters", run: () => ["draft_review_replies", { max_chili: 2, limit: 3 }], ai: true },
+    { label: "🕸️ Stale reviews", run: () => ["list_reviews", { older_than_days: 90, limit: 15 }] },
+  ],
+  orders: [
+    { label: "📊 Today's stats", run: () => ["order_stats", { range: "today" }] },
+    { label: "⏰ Orders by hour", run: () => ["sales_by_time", { by: "hour", range: "30d" }] },
+    { label: "📅 Orders by weekday", run: () => ["sales_by_time", { by: "weekday", range: "all" }] },
+    { label: "👑 Top customers (30d)", run: () => ["order_stats", { range: "30d" }] },
+    { label: "⬇️ Export CSV (7d)", run: () => ["export_orders", { range: "7d" }] },
+  ],
+  settings: [
+    { label: "📝 Weekly report", run: () => ["weekly_report", {}] },
+    { label: "🔍 Maintenance check", run: () => ["find_issues", {}] },
+  ],
+};
+const UNDO_CHIP = { label: "↩️ Undo last change", run: () => ["undo_last", {}] };
+const visibleChips = () => [...(chefCanUndo ? [UNDO_CHIP] : []), ...(TAB_CHIPS[currentTab] || TAB_CHIPS.overview).filter((c) => (c.prompt ? aiEnabled : c.ai ? aiEnabled : true))];
+function renderChefChips() {
+  const el = $("#chef-chips");
+  if (!el) return;
+  el.innerHTML = visibleChips()
+    .map((c, i) => `<button type="button" class="chip" data-chip="${i}" ${chefBusy ? "disabled" : ""}${c.prompt ? ` title="Asks the AI"` : ""}>${esc(c.label)}</button>`)
+    .join("");
+}
 
 function syncChefStatus() {
   const el = $("#chef-status");
   if (!el) return;
   el.innerHTML = aiEnabled ? `<span class="dot on"></span> AI on · quick actions run instantly` : `<span class="dot"></span> AI off · quick actions still work`;
+  renderChefChips();
 }
 
 async function chefInit() {
   if (chefReady) return;
   chefReady = true;
   chefLog = session.get();
-  $("#chef-chips").innerHTML = CHIPS.map((c, i) => `<button type="button" class="chip" data-chip="${i}">${esc(c.label)}</button>`).join("");
+  chefCanUndo = Boolean(chefLog.at(-1)?.canUndo);
   let wide = false;
+  let pin = false;
   try {
     wide = localStorage.getItem(CHEF_WIDE_KEY) === "1";
+    pin = localStorage.getItem(CHEF_PIN_KEY) === "1";
   } catch {
-    wide = false;
+    wide = pin = false;
   }
   setChefWide(wide);
+  setChefPinned(pin);
   renderChef();
   try {
     aiEnabled = Boolean((await api("/api/admin/agent")).enabled);
@@ -1695,44 +1909,139 @@ function setChefWide(on) {
   }
 }
 
-function openChef() {
+// 📌 Pinned = a docked side panel next to the dashboard (wide screens only)
+let chefPinWanted = false;
+function setChefPinned(on) {
+  chefPinWanted = on;
+  const pinned = on && PIN_MEDIA.matches;
+  document.body.classList.toggle("chef-pinned", pinned);
+  $("#chef-pin").setAttribute("aria-pressed", String(on));
+  $("#chef-pin").title = on ? "Unpin (floating chat)" : "Pin as side panel";
+  try {
+    localStorage.setItem(CHEF_PIN_KEY, on ? "1" : "0");
+  } catch {
+    /* not remembered */
+  }
+  if (pinned && $("#chef").hidden && !$("#panel").hidden) openChef({ focus: false });
+}
+PIN_MEDIA.addEventListener?.("change", () => setChefPinned(chefPinWanted));
+
+function openChef({ focus = true } = {}) {
   $("#chef").hidden = false;
   $("#chef-fab").setAttribute("aria-expanded", "true");
   document.body.classList.add("chef-open");
   renderChef();
-  setTimeout(() => $("#chef-input").focus(), 30);
+  if (focus) setTimeout(() => $("#chef-input").focus(), 30);
 }
 function closeChef() {
   if ($("#chef").hidden) return;
+  if (document.body.classList.contains("chef-pinned")) setChefPinned(false);
   $("#chef").hidden = true;
   $("#chef-fab").setAttribute("aria-expanded", "false");
   document.body.classList.remove("chef-open");
-  $("#chef-fab").focus();
+  if (!$("#chef-fab").hidden) $("#chef-fab").focus();
 }
 const toggleChef = () => ($("#chef").hidden ? openChef() : closeChef());
 $("#chef-fab").addEventListener("click", toggleChef);
 $("#chef-close").addEventListener("click", closeChef);
 $("#chef-wide").addEventListener("click", () => setChefWide(!$("#chef").classList.contains("wide")));
+$("#chef-pin").addEventListener("click", () => setChefPinned(!chefPinWanted));
 $("#chef-clear").addEventListener("click", () => {
+  if (chefLog.length && !confirm("Clear this chat history? (Changes already made stay; undo still works.)")) return;
   chefLog = [];
   session.set(chefLog);
   renderChef();
   $("#chef-input").focus();
 });
 
-const cellHtml = (v, isTime) => (isTime ? esc(when(v)) : esc(v));
-function chefCard(c, ei, ci) {
-  const title = c.title ? `<div class="cc-title">${esc(c.title)}</div>` : "";
-  if (c.kind === "table") {
-    if (!c.rows?.length) return `<div class="cc">${title}<p class="hint">Nothing here.</p></div>`;
-    return `<div class="cc">${title}<div class="table-wrap"><table class="data-table"><thead><tr>${c.columns.map((h) => `<th scope="col">${esc(h)}</th>`).join("")}</tr></thead><tbody>${c.rows
-      .map((r) => `<tr>${r.map((v, i) => `<td dir="auto">${cellHtml(v, i === c.time_col)}</td>`).join("")}</tr>`)
-      .join("")}</tbody></table></div></div>`;
+// Tiny, safe markdown (escape first): ## headings, - / 1. lists, **bold**, _italic_
+function miniMarkdown(md) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/(^|\s)_(.+?)_(?=\s|$|[.,!?])/g, "$1<em>$2</em>");
+  let html = "";
+  let list = null;
+  const close = () => {
+    if (list) html += `</${list}>`;
+    list = null;
+  };
+  for (const line of String(md).split("\n")) {
+    const h = /^(#{2,3})\s+(.*)/.exec(line);
+    const ul = /^\s*[-*]\s+(.*)/.exec(line);
+    const ol = /^\s*\d+\.\s+(.*)/.exec(line);
+    if (h) {
+      close();
+      html += `<h${h[1].length + 2} dir="auto">${inline(h[2])}</h${h[1].length + 2}>`;
+    } else if (ul || ol) {
+      const want = ul ? "ul" : "ol";
+      if (list !== want) (close(), (html += `<${want}>`), (list = want));
+      html += `<li dir="auto">${inline((ul || ol)[1])}</li>`;
+    } else if (line.trim()) {
+      close();
+      html += `<p dir="auto">${inline(line)}</p>`;
+    } else close();
   }
-  if (c.kind === "stats") return `<div class="cc">${title}<div class="cc-kpis">${c.kpis.map((k) => `<div class="kpi"><span class="kpi-label">${esc(k.label)}</span><strong class="kpi-value">${esc(k.value)}</strong></div>`).join("")}</div></div>`;
+  close();
+  return html;
+}
+
+const cellHtml = (v, isTime) => (isTime ? timeTag(v) : esc(v));
+const tableHtml = (columns, rows, timeCol) =>
+  `<div class="table-wrap cc-scroll"><table class="data-table"><thead><tr>${columns.map((h) => `<th scope="col">${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows
+    .map((r) => `<tr>${r.map((v, i) => `<td dir="auto">${cellHtml(v, i === timeCol)}</td>`).join("")}</tr>`)
+    .join("")}</tbody></table></div>`;
+const copyBtn = (ei, ci, what = "table") => `<button type="button" class="btn small ghost cc-copy" data-copy="${ei}:${ci}" aria-label="Copy ${what}">📋 Copy</button>`;
+const ccHead = (c, ei, ci, copy) => (c.title || copy ? `<div class="cc-head"><div class="cc-title">${esc(c.title || "")}</div>${copy ? copyBtn(ei, ci, copy) : ""}</div>` : "");
+
+// Plain-text version of a card for the clipboard (tables as tab-separated, pastes into Sheets/Excel)
+function cardText(c) {
+  const tsv = (cols, rows) => [cols, ...rows].map((r) => r.map((x) => String(x ?? "").replace(/\s+/g, " ")).join("\t")).join("\n");
+  if (c.kind === "table") return tsv(c.columns, c.rows);
+  if (c.kind === "chart") return tsv(["", c.unit || "value", ""], c.bars.map((b) => [b.label, b.value, b.sub || ""]));
+  if (c.kind === "markdown") return c.text;
+  if (c.kind === "replies") return c.items.map((x) => `${x.dish} → ${x.by}: ${x.reply}`).join("\n\n");
+  if (c.kind === "stats") return c.kpis.map((k) => `${k.label}: ${k.value}${k.delta != null ? ` (${k.delta > 0 ? "+" : ""}${k.delta}%)` : ""}`).join("\n");
+  if (c.kind === "confirm" && c.preview) return tsv(c.preview.columns, c.preview.rows);
+  return c.text || c.title || "";
+}
+
+function chefCard(c, ei, ci) {
+  if (c.kind === "table") {
+    if (!c.rows?.length) return `<div class="cc">${ccHead(c, ei, ci)}<p class="hint">Nothing here.</p></div>`;
+    return `<div class="cc">${ccHead(c, ei, ci, "table")}${tableHtml(c.columns, c.rows, c.time_col)}</div>`;
+  }
+  if (c.kind === "stats") {
+    return `<div class="cc">${ccHead(c, ei, ci, "numbers")}<div class="cc-kpis">${c.kpis
+      .map(
+        (k) => `<div class="kpi"><span class="kpi-label">${esc(k.label)}</span><strong class="kpi-value">${esc(k.value)}</strong>${
+          k.delta !== undefined ? `<small>${deltaPill(k.delta, "before")}${k.prev ? ` <span class="kpi-prev">was ${esc(k.prev)}</span>` : ""}</small>` : ""
+        }</div>`,
+      )
+      .join("")}</div></div>`;
+  }
+  if (c.kind === "chart") {
+    const max = Math.max(1, ...c.bars.map((b) => b.value));
+    const top = Math.max(...c.bars.map((b) => b.value));
+    return `<div class="cc">${ccHead(c, ei, ci, "chart data")}<ol class="hbars cc-chart">${c.bars
+      .map(
+        (b) => `<li class="${b.value && b.value === top ? "top" : ""}"><span class="hbar-label">${esc(b.label)}</span><span class="hbar" aria-hidden="true"><span style="width:${Math.round((b.value / max) * 100)}%"></span></span><b>${esc(b.value)}</b>${
+          b.sub ? `<small class="cc-sub" dir="auto">${esc(b.sub)}</small>` : ""
+        }</li>`,
+      )
+      .join("")}</ol><p class="hint">${esc(c.unit || "")} per ${c.bars.length === 7 ? "weekday" : "hour"}</p></div>`;
+  }
+  if (c.kind === "markdown") return `<div class="cc cc-md">${ccHead(c, ei, ci, "report")}<div class="md">${miniMarkdown(c.text)}</div></div>`;
+  if (c.kind === "link") return `<div class="cc">${ccHead(c, ei, ci)}<p>${esc(c.text)}</p><a class="btn small" href="${esc(c.href)}" download>${esc(c.label || "Download")}</a></div>`;
+  if (c.kind === "replies") {
+    return `<div class="cc">${ccHead(c, ei, ci, "replies")}<ul class="cc-ideas">${c.items
+      .map(
+        (x, xi) => `<li><small dir="auto">${"🌶️".repeat(x.chili)} <b>${esc(x.by)}</b> on ${esc(x.dish)}: “${esc(x.review)}”</small>
+          <p dir="auto">↩️ ${esc(x.reply)}</p>
+          <button class="btn small ghost" type="button" data-copy-reply-draft="${ei}:${ci}:${xi}">📋 Copy reply</button></li>`,
+      )
+      .join("")}</ul></div>`;
+  }
   if (c.kind === "dishes" || c.kind === "issues") {
-    if (!c.items?.length) return `<div class="cc">${title}</div>`;
-    return `<div class="cc">${title}<ul class="cc-dishes">${c.items
+    if (!c.items?.length) return `<div class="cc">${ccHead(c, ei, ci)}</div>`;
+    return `<div class="cc">${ccHead(c, ei, ci)}<ul class="cc-dishes">${c.items
       .map(
         (d) => `<li>
           ${d.photo_url ? `<img src="${esc(d.photo_url)}" alt="">` : `<span class="noimg">🍽️</span>`}
@@ -1740,13 +2049,13 @@ function chefCard(c, ei, ci) {
             <small>${esc(d.price)} EGP · ${d.visible ? "👁 visible" : "🙈 hidden"}${d.detail ? ` · <span dir="auto">${esc(d.detail)}</span>` : ""}</small>
             ${(d.issues || []).length ? `<span class="meta">${d.issues.map((i) => `<span class="tag">${esc(i)}</span>`).join("")}</span>` : ""}
           </div>
-          <button class="btn small ghost" type="button" data-chef-edit="${esc(d.id)}">${c.kind === "issues" ? "Fix" : "Edit"}</button>
+          <button class="btn small ghost" type="button" data-chef-edit="${esc(d.id)}" aria-label="${c.kind === "issues" ? "Fix" : "Edit"} ${esc(d.name)}">${c.kind === "issues" ? "Fix" : "Edit"}</button>
         </li>`,
       )
       .join("")}</ul></div>`;
   }
   if (c.kind === "ideas") {
-    return `<div class="cc">${title}<ul class="cc-ideas">${c.items
+    return `<div class="cc">${ccHead(c, ei, ci)}<ul class="cc-ideas">${c.items
       .map(
         (x, xi) => `<li>
           <div><strong dir="auto">${esc(x.name_ar)}</strong>${x.name_en ? ` · <span dir="auto">${esc(x.name_en)}</span>` : ""}</div>
@@ -1759,30 +2068,40 @@ function chefCard(c, ei, ci) {
       .join("")}</ul></div>`;
   }
   if (c.kind === "confirm") {
-    const state = c.resolved === "done" ? `<p class="cc-done">✅ Done</p>` : c.resolved === "cancelled" ? `<p class="hint">Cancelled. Nothing changed.</p>` : c.resolved === "failed" ? `<p class="hint">Didn't go through (see below). Ask again if you still want it.</p>` : `<div class="btn-group"><button class="btn small danger" type="button" data-confirm="${ei}:${ci}">✅ Yes, do it</button><button class="btn small ghost" type="button" data-cancel="${ei}:${ci}">Cancel</button></div>`;
-    return `<div class="cc cc-confirm"><p><strong>⚠️ Confirm:</strong> ${esc(c.text)}</p>${state}</div>`;
+    const state =
+      c.resolved === "done"
+        ? `<p class="cc-done">✅ Done</p>`
+        : c.resolved === "cancelled"
+          ? `<p class="hint">Cancelled. Nothing changed.</p>`
+          : c.resolved === "failed"
+            ? `<p class="hint">Didn't go through (see below). Ask again if you still want it.</p>`
+            : `<div class="btn-group"><button class="btn small danger" type="button" data-confirm="${ei}:${ci}">✅ Yes, do it</button><button class="btn small ghost" type="button" data-cancel="${ei}:${ci}">Cancel</button></div>`;
+    const pv = c.preview?.rows?.length ? `<div class="cc-preview"><div class="cc-head"><small class="kpi-label">Preview · ${c.preview.rows.length + (c.preview.more || 0)} change${c.preview.rows.length + (c.preview.more || 0) === 1 ? "" : "s"}</small>${copyBtn(ei, ci, "preview")}</div>${tableHtml(c.preview.columns, c.preview.rows)}${c.preview.more ? `<p class="hint">…and ${c.preview.more} more</p>` : ""}</div>` : "";
+    return `<div class="cc cc-confirm"><p><strong>⚠️ Confirm:</strong> ${esc(c.text)}</p>${pv}${state}</div>`;
   }
   return `<div class="cc cc-${esc(c.tone || "ok")}"><p>${esc(c.text)}</p></div>`;
 }
 
+const TYPING_STEPS = ["Reading the menu…", "Checking the orders…", "Crunching numbers…", "Plating the answer…"];
 function renderChef() {
   const log = $("#chef-log");
   if (!log) return;
-  const intro = `<div class="msg bot"><div class="bubble">أهلًا يا شيف 👨‍🍳 I can edit dishes, hide/show them, pull real stats, write funny copy and clean up reviews. Deletes always ask you first. Try a quick action below 👇</div></div>`;
+  const intro = `<div class="msg bot"><div class="bubble">أهلًا يا شيف 👨‍🍳 Ask me about sales (“best day for Koshary?”), change prices in bulk, set badges by rule, rewrite descriptions, draft review replies or get the weekly report. Bulk changes show a preview first and anything I change can be undone. Try a suggestion below 👇</div></div>`;
   log.innerHTML =
     intro +
     chefLog
       .map(
         (m, ei) => `<div class="msg ${m.role === "user" ? "me" : "bot"}${m.error ? " err" : ""}">
-          ${m.text ? `<div class="bubble" dir="auto">${esc(m.text)}</div>` : ""}
+          ${m.text ? `<div class="bubble" dir="auto">${m.role === "user" ? esc(m.text) : esc(m.text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</div>` : ""}
           ${(m.cards || []).map((c, ci) => chefCard(c, ei, ci)).join("")}
+          ${m.ran?.length ? `<div class="ran" aria-label="Tools used">🔧 ${m.ran.map((r) => esc(r.text)).join(" · ")}</div>` : ""}
         </div>`,
       )
       .join("") +
-    (chefBusy ? `<div class="msg bot"><div class="bubble typing" aria-label="Chef is thinking"><span></span><span></span><span></span></div></div>` : "");
+    (chefBusy ? `<div class="msg bot" aria-live="polite"><div class="bubble typing-wrap"><span class="typing" aria-hidden="true"><span></span><span></span><span></span></span> <span id="typing-step">${TYPING_STEPS[0]}</span></div></div>` : "");
   log.scrollTop = log.scrollHeight;
   $("#chef-send").disabled = chefBusy;
-  $$("#chef-chips .chip").forEach((b) => (b.disabled = chefBusy));
+  renderChefChips();
 }
 
 function chefHistory() {
@@ -1797,16 +2116,24 @@ async function chefRequest(body, { userText } = {}) {
   if (userText) chefLog.push({ role: "user", text: userText, local: Boolean(body.run) });
   chefBusy = true;
   renderChef();
+  let step = 0;
+  clearInterval(chefTyping);
+  chefTyping = setInterval(() => {
+    const el = $("#typing-step");
+    if (el) el.textContent = TYPING_STEPS[Math.min(++step, TYPING_STEPS.length - 1)];
+  }, 1400);
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-    const res = await api("/api/admin/agent", { method: "POST", body: JSON.stringify({ ...body, tz }) });
-    chefLog.push({ role: "assistant", text: res.reply, cards: res.cards || [], local: Boolean(body.run || body.confirm_token) });
+    const res = await api("/api/admin/agent", { method: "POST", body: JSON.stringify({ ...body, tz, chat_id: chefId }) });
+    chefCanUndo = Boolean(res.can_undo);
+    chefLog.push({ role: "assistant", text: res.reply, cards: res.cards || [], ran: res.tools_ran || [], canUndo: chefCanUndo, local: Boolean(body.run || body.confirm_token) });
     applyChefActions(res.actions || []);
     return res;
   } catch (err) {
     if (err.status === 401) return showLogin();
     chefLog.push({ role: "assistant", text: `😬 ${err.message}`, error: true, local: true });
   } finally {
+    clearInterval(chefTyping);
     chefBusy = false;
     session.set(chefLog);
     renderChef();
@@ -1848,8 +2175,9 @@ $("#chef-input").addEventListener("input", (e) => {
   e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`;
 });
 $("#chef-chips").addEventListener("click", (e) => {
-  const chip = CHIPS[e.target.closest("[data-chip]")?.dataset.chip];
+  const chip = visibleChips()[e.target.closest("[data-chip]")?.dataset.chip];
   if (!chip || chefBusy) return;
+  if (chip.prompt) return sendChef(chip.prompt);
   const run = chip.run();
   if (!run) {
     chefLog.push({ role: "user", text: chip.label, local: true }, { role: "assistant", text: chip.empty || "Nothing to do 🤷", local: true });
@@ -1859,6 +2187,15 @@ $("#chef-chips").addEventListener("click", (e) => {
   runChef(run[0], run[1], chip.label);
 });
 
+async function copyText(text, what = "Copied 📋") {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(what);
+  } catch {
+    toast("Couldn't copy, select the text instead", { type: "error" });
+  }
+}
+
 $("#chef-log").addEventListener("click", async (e) => {
   const btn = e.target.closest("button");
   if (!btn) return;
@@ -1866,6 +2203,14 @@ $("#chef-log").addEventListener("click", async (e) => {
     const [ei, ci, xi] = btn.dataset[key].split(":").map(Number);
     return { entry: chefLog[ei], card: chefLog[ei]?.cards?.[ci], xi };
   };
+  if (btn.dataset.copy) {
+    const { card } = ref("copy");
+    return card && copyText(cardText(card), card.kind === "markdown" ? "Report copied (markdown) 📋" : "Copied, paste it into Sheets/Excel 📋");
+  }
+  if (btn.dataset.copyReplyDraft) {
+    const { card, xi } = ref("copyReplyDraft");
+    return card && copyText(card.items[xi]?.reply || "");
+  }
   if (btn.dataset.chefEdit) {
     if (!dishes.some((d) => d.id === btn.dataset.chefEdit)) dishes = await api("/api/admin/dishes").catch(() => dishes);
     const dish = dishes.find((d) => d.id === btn.dataset.chefEdit);
