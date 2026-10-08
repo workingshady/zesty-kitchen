@@ -9,6 +9,9 @@ let currentTab = "overview";
 const selectedDishes = new Set();
 const selectedReviews = new Set();
 let orderRange = "all";
+let aiEnabled = false;
+let highlightOnly = false;
+const TABS = ["overview", "dishes", "reviews", "orders", "settings"];
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -60,6 +63,9 @@ function showLogin() {
   $("#login").hidden = false;
   $("#panel").hidden = true;
   $("#logout").hidden = true;
+  $("#chef-fab").hidden = true;
+  $("#shortcuts-open").hidden = true;
+  closeChef();
 }
 
 async function showPanel() {
@@ -69,7 +75,10 @@ async function showPanel() {
   $("#panel").hidden = false;
   $("#logout").hidden = false;
   const fromHash = location.hash.slice(1);
-  switchTab(["overview", "dishes", "reviews", "orders"].includes(fromHash) ? fromHash : "overview");
+  $("#chef-fab").hidden = false;
+  $("#shortcuts-open").hidden = false;
+  switchTab(TABS.includes(fromHash) ? fromHash : "overview");
+  chefInit();
 }
 
 $("#login-form").addEventListener("submit", async (e) => {
@@ -94,32 +103,83 @@ function switchTab(name) {
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
   $$(".tab-panel").forEach((p) => (p.hidden = p.id !== `tab-${name}`));
   history.replaceState(null, "", `#${name}`);
-  ({ overview: loadOverview, dishes: loadDishes, reviews: loadReviews, orders: loadOrders })[name]().catch(fail);
+  LOADERS[name]().catch(fail);
 }
+const LOADERS = { overview: () => loadOverview(), dishes: () => loadDishes(), reviews: () => loadReviews(), orders: () => loadOrders(), settings: () => loadSettings() };
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
 
+// ---- Theme (light / dark / system), remembered per browser ----
+function applyTheme(mode) {
+  const dark = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  $("#theme-toggle").textContent = dark ? "☀️" : "🌙";
+  $$("[data-theme-set]").forEach((b) => b.classList.toggle("active", b.dataset.themeSet === mode));
+}
+const themeMode = () => store.get("zk_admin_theme") || "light";
+function setTheme(mode) {
+  store.set("zk_admin_theme", mode);
+  applyTheme(mode);
+}
+$("#theme-toggle").addEventListener("click", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
+$$("[data-theme-set]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeSet)));
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => themeMode() === "system" && applyTheme("system"));
+
 // ---- Overview ----
+const kpi = (label, value, sub = "") => `<div class="kpi"><span class="kpi-label">${label}</span><strong class="kpi-value">${value}</strong>${sub ? `<small>${sub}</small>` : ""}</div>`;
+const shortDay = (day) => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+const hourLabel = (h) => `${String(h).padStart(2, "0")}:00`;
+
+function vbars(points, { label, fmt = (n) => n, title }) {
+  const max = Math.max(1, ...points.map((p) => p.value));
+  return `<div class="vbars" role="img" aria-label="${esc(label)}">
+    ${points
+      .map(
+        (p) => `<div class="vbar" title="${esc(p.title)}: ${esc(fmt(p.value))}"><span class="vbar-n">${p.value ? esc(p.short ?? fmt(p.value)) : ""}</span><span class="vbar-fill${p.hot ? " hot" : ""}" style="height:${Math.round((p.value / max) * 100)}%"></span><span class="vbar-day">${esc(p.tick)}</span></div>`,
+      )
+      .join("")}
+  </div>${title ? `<p class="hint">${title}</p>` : ""}`;
+}
+const compact = (n) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(Math.round(n)));
+
 async function loadOverview() {
   $("#overview").innerHTML = `<p class="state">Loading…</p>`;
+  loadAiStatus();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
   const s = await api(`/api/admin/stats?tz=${encodeURIComponent(tz)}`);
-  const kpi = (label, value, sub = "") => `<div class="kpi"><span class="kpi-label">${label}</span><strong class="kpi-value">${value}</strong>${sub ? `<small>${sub}</small>` : ""}</div>`;
   const maxTop = Math.max(1, ...s.top_dishes.map((d) => d.qty));
-  const maxDay = Math.max(1, ...s.orders_per_day.map((d) => d.count));
   const pay = s.top_payment_method;
+  const peak = s.busiest_hour;
+  const dist = s.chili_distribution || {};
+  const distMax = Math.max(1, ...Object.values(dist));
+  const sentiment = s.avg_chili == null ? "no reviews yet" : s.avg_chili >= 4 ? "they love it 🔥" : s.avg_chili >= 3 ? "mixed feelings 😐" : "haters assembled 🧊";
+  const rated = (list) => list.map((d) => `<li class="row-between"><span dir="auto">${esc(d.name)}</span><span><b>${d.avg}</b> 🌶️ <small>(${d.reviews})</small></span></li>`).join("");
 
   $("#overview").innerHTML = `
     <div class="kpis">
-      ${kpi("🧾 Total orders", s.total_orders)}
-      ${kpi("📅 Orders today", s.orders_today)}
-      ${kpi("💸 Fake revenue", egp(s.revenue))}
+      ${kpi("📅 Orders today", s.orders_today, egp(s.revenue_today))}
+      ${kpi("🗓️ Last 7 days", s.orders_7d, egp(s.revenue_7d))}
+      ${kpi("🧾 All orders", s.total_orders, egp(s.revenue))}
       ${kpi("🧮 Avg order", egp(s.avg_order_value))}
-      ${kpi("💬 Reviews", s.reviews_count)}
-      ${kpi("🌶️ Avg chili", s.avg_chili ?? "–", s.avg_chili ? "out of 5" : "no reviews yet")}
+      ${kpi("⏰ Busiest hour", peak ? hourLabel(peak.hour) : "–", peak ? `${peak.count} order${peak.count === 1 ? "" : "s"}` : "no orders yet")}
+      ${kpi("🌶️ Avg chili", s.avg_chili ?? "–", `${s.reviews_count} reviews · ${sentiment}`)}
       ${kpi("👁 Dishes", `${s.dishes_visible} / ${s.dishes_total}`, `${s.dishes_hidden} hidden`)}
       ${kpi("📸 No photo", s.dishes_without_photo, "dishes")}
     </div>
     <div class="ov-grid">
+      <section class="card">
+        <h3>💸 Revenue, last 14 days</h3>
+        ${vbars(
+          s.orders_per_day.map((d) => ({ value: d.revenue || 0, title: shortDay(d.day), tick: d.day.slice(8), short: compact(d.revenue || 0) })),
+          { label: "Revenue per day for the last 14 days", fmt: egp, title: `📈 ${s.orders_per_day.reduce((n, d) => n + d.count, 0)} orders in 14 days` },
+        )}
+      </section>
+      <section class="card">
+        <h3>⏰ Orders by hour</h3>
+        ${vbars(
+          (s.orders_per_hour || Array(24).fill(0)).map((n, h) => ({ value: n, title: hourLabel(h), tick: h % 3 === 0 ? String(h) : "", hot: peak && h === peak.hour })),
+          { label: "Orders per hour of the day", title: `💳 Most used payment: ${pay ? `<strong>${esc(PAYMENT_LABELS[pay.method] || pay.method)}</strong> (${pay.count}×)` : "–"}` },
+        )}
+      </section>
       <section class="card">
         <h3>🏆 Top 5 dishes</h3>
         ${
@@ -134,16 +194,28 @@ async function loadOverview() {
         }
       </section>
       <section class="card">
-        <h3>📈 Orders, last 14 days</h3>
-        <div class="vbars" role="img" aria-label="Orders per day for the last 14 days">
-          ${s.orders_per_day
-            .map((d) => {
-              const label = new Date(`${d.day}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-              return `<div class="vbar" title="${esc(label)}: ${d.count}"><span class="vbar-n">${d.count || ""}</span><span class="vbar-fill" style="height:${Math.round((d.count / maxDay) * 100)}%"></span><span class="vbar-day">${esc(d.day.slice(8))}</span></div>`;
-            })
-            .join("")}
-        </div>
-        <p class="hint">💳 Most used payment: ${pay ? `<strong>${esc(PAYMENT_LABELS[pay.method] || pay.method)}</strong> (${pay.count}×)` : "–"}</p>
+        <h3>👑 Top customers</h3>
+        ${
+          (s.top_customers || []).length
+            ? `<div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Name</th><th scope="col">Orders</th><th scope="col">Spent</th></tr></thead><tbody>${s.top_customers
+                .map((c, i) => `<tr><td dir="auto">${["🥇", "🥈", "🥉"][i] || "🍽️"} ${esc(c.name)}</td><td>${c.orders}</td><td>${egp(c.total)}</td></tr>`)
+                .join("")}</tbody></table></div><p class="hint">First names only.</p>`
+            : `<p class="state">No customers yet.</p>`
+        }
+      </section>
+      <section class="card">
+        <h3>🌶️ Review sentiment</h3>
+        ${
+          s.reviews_count
+            ? `<ol class="hbars chili-bars">${[5, 4, 3, 2, 1]
+                .map((c) => `<li><span class="hbar-label">${"🌶️".repeat(c)}</span><span class="hbar"><span style="width:${Math.round(((dist[c] || 0) / distMax) * 100)}%"></span></span><b>${dist[c] || 0}</b></li>`)
+                .join("")}</ol>
+              <div class="rated">
+                <div><small class="kpi-label">🔥 Best rated</small><ul class="mini-list">${rated(s.best_rated || [])}</ul></div>
+                <div><small class="kpi-label">🧊 Worst rated</small><ul class="mini-list">${rated(s.worst_rated || [])}</ul></div>
+              </div>`
+            : `<p class="state">No reviews yet.</p>`
+        }
       </section>
       <section class="card">
         <h3>💬 Latest reviews</h3>
@@ -158,8 +230,8 @@ async function loadOverview() {
             : `<p class="state">No reviews yet.</p>`
         }
       </section>
-      <section class="card">
-        <h3>⚠️ Needs attention</h3>
+      <section class="card wide">
+        <div class="row-between"><h3>⚠️ Needs attention</h3>${s.needs_attention.length ? `<button class="btn small ghost" type="button" data-chef-run="find_issues">👨‍🍳 Ask the chef</button>` : ""}</div>
         ${
           s.needs_attention.length
             ? `<ul class="mini-list">${s.needs_attention
@@ -173,6 +245,57 @@ async function loadOverview() {
       </section>
     </div>`;
 }
+
+// ---- 🤖 AI status card ----
+const ago2 = (iso) => {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+};
+function renderAiStatus(st, test) {
+  aiEnabled = Boolean(st.enabled);
+  syncChefStatus();
+  const pct = st.usage.pct || 0;
+  $("#ai-status").innerHTML = `
+    <div class="ai-row">
+      ${st.providers.map((p) => `<span class="pill ${p.connected ? "on" : "off"}">${p.connected ? "🟢" : "⚪"} ${esc(p.label)} ${p.connected ? "connected" : "not set"}</span>`).join("")}
+      <span class="pill ${st.enabled ? "on" : "off"}">${st.enabled ? "✨ AI on" : "😴 AI off (canned jokes)"}</span>
+    </div>
+    <div class="meter-row">
+      <span>Today: <b>${st.usage.used}</b>${st.usage.cap ? ` / ${st.usage.cap}` : ""} AI calls</span>
+      <span class="meter" role="meter" aria-label="AI calls used today" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%" class="${pct >= 90 ? "hot" : ""}"></span></span>
+      <small>resets at ${esc(st.usage.resets || "midnight UTC")}</small>
+    </div>
+    ${test ? `<p class="ai-test ${test.ok ? "ok" : "bad"}" role="status">${test.ok ? "✅" : "❌"} ${esc(test.message)}${test.ok ? ` · “${esc(test.text)}” · ${test.ms} ms` : ""}</p>` : ""}
+    ${
+      st.errors.length
+        ? `<details class="ai-errors"><summary>⚠️ Last problems (${st.errors.length})</summary><ul class="mini-list">${st.errors
+            .map((e) => `<li><p>${esc(e.text)}</p><small title="${esc(e.raw)}">${esc(ago2(e.at))}</small></li>`)
+            .join("")}</ul></details>`
+        : `<p class="hint">No AI errors since the last deploy. 🧘</p>`
+    }`;
+}
+async function loadAiStatus() {
+  try {
+    renderAiStatus(await api("/api/admin/ai/status"));
+  } catch (err) {
+    if (err.status === 401) return showLogin();
+    $("#ai-status").innerHTML = `<p class="hint">Couldn't read the AI status: ${esc(err.message)}</p>`;
+  }
+}
+$("#ai-test").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  btn.textContent = "⏳ Testing…";
+  try {
+    const r = await api("/api/admin/ai/test", { method: "POST", body: "{}" });
+    renderAiStatus(r.status, r);
+  } catch (err) {
+    fail(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "⚡ Test AI";
+  }
+});
 $("#refresh-overview").addEventListener("click", () => loadOverview().catch(fail));
 $("#overview").addEventListener("click", async (e) => {
   const id = e.target.closest("[data-fix]")?.dataset.fix;
@@ -183,11 +306,23 @@ $("#overview").addEventListener("click", async (e) => {
 });
 
 // ---- Dishes ----
-const dishFilters = () => ({ q: $("#dish-search").value.trim().toLowerCase(), cat: $("#dish-cat").value, vis: $("#dish-vis").value });
+const dishFilters = () => ({ q: $("#dish-search").value.trim().toLowerCase(), cat: $("#dish-cat").value, vis: $("#dish-vis").value, sort: $("#dish-sort").value });
 const isFiltering = () => {
   const f = dishFilters();
-  return Boolean(f.q || f.cat || f.vis);
+  return Boolean(f.q || f.cat || f.vis || f.sort !== "menu");
 };
+// Badges worth one click from the list; the rest live in the editor
+const QUICK_BADGES = ["sold_out", "popular", "new", "spicy", "chefs_pick"];
+const DISH_SORTS = {
+  name: (a, b) => dishName(a).localeCompare(dishName(b)),
+  price_asc: (a, b) => a.price - b.price,
+  price_desc: (a, b) => b.price - a.price,
+  most_ordered: (a, b) => b.order_qty - a.order_qty,
+  least_ordered: (a, b) => a.order_qty - b.order_qty,
+  reviews: (a, b) => b.review_count - a.review_count,
+  newest: (a, b) => String(b.created_at).localeCompare(String(a.created_at)),
+};
+const siteLink = (d) => `/?dish=${encodeURIComponent(d.id)}`;
 
 async function loadDishes() {
   if (!dishes.length) loading("#dish-list");
@@ -198,20 +333,23 @@ async function loadDishes() {
 }
 
 function visibleDishRows() {
-  const { q, cat, vis } = dishFilters();
-  return dishes.filter(
+  const { q, cat, vis, sort } = dishFilters();
+  const rows = dishes.filter(
     (d) =>
       (!cat || d.category === cat) &&
       (!vis || (vis === "visible") === Boolean(d.is_visible)) &&
       (!q || [d.name_ar, d.name_en, d.job_title, d.catchphrase].some((x) => String(x || "").toLowerCase().includes(q))),
   );
+  return DISH_SORTS[sort] ? rows.sort(DISH_SORTS[sort]) : rows;
 }
 
 function renderDishes() {
   const cats = Object.fromEntries(config.categories.map((c) => [c.slug, `${c.emoji} ${c.en}`]));
   const rows = visibleDishRows();
   const filtering = isFiltering();
-  $("#dish-hint").textContent = filtering ? `Showing ${rows.length} of ${dishes.length}. Clear filters to drag-reorder.` : "Drag rows to reorder. Shortcut: n = new dish, / = search.";
+  $("#dish-hint").textContent = filtering
+    ? `Showing ${rows.length} of ${dishes.length}. Clear filters and pick “Menu order” to drag-reorder.`
+    : "Drag rows to reorder. Drop a photo on a dish's picture to replace it. Prices save on Enter.";
   $("#dish-list").innerHTML =
     rows
       .map(
@@ -219,15 +357,24 @@ function renderDishes() {
       <li draggable="${!filtering}" data-id="${esc(d.id)}" class="${d.is_visible ? "" : "hidden-dish"}">
         <input type="checkbox" class="pick" data-pick="${esc(d.id)}" ${selectedDishes.has(d.id) ? "checked" : ""} aria-label="Select ${esc(dishName(d))}">
         ${filtering ? "" : `<span class="handle" aria-hidden="true">⠿</span>`}
-        ${d.photo_url ? `<img src="${esc(d.photo_url)}" alt="">` : `<span class="noimg" title="No photo">🍽️</span>`}
+        <label class="photo-drop" data-drop="${esc(d.id)}" title="Drop or pick a photo to replace it">
+          ${d.photo_url ? `<img src="${esc(d.photo_url)}" alt="">` : `<span class="noimg">🍽️</span>`}
+          <input type="file" class="sr-only" accept="image/jpeg,image/png,image/webp,image/gif" data-photo="${esc(d.id)}" aria-label="Replace photo of ${esc(dishName(d))}">
+        </label>
         <div class="grow">
           ${nameHtml(d)}
-          <small>${esc(cats[d.category] || d.category)} · ${d.price} EGP${d.job_title ? ` · 💼 <span dir="auto">${esc(d.job_title)}</span>` : ""}</small>
+          <small>${esc(cats[d.category] || d.category)}${d.job_title ? ` · 💼 <span dir="auto">${esc(d.job_title)}</span>` : ""}</small>
           <small>💬 ${d.review_count} reviews · 🧾 ${d.order_qty} ordered</small>
-          <span class="meta">${(d.badges || []).map((b) => `<span class="tag">${esc(config.badges[b] || b)}</span>`).join("")}</span>
+          <span class="meta">${(d.badges || []).filter((b) => !QUICK_BADGES.includes(b)).map((b) => `<span class="tag">${esc(config.badges[b] || b)}</span>`).join("")}</span>
+          <span class="badge-toggles" role="group" aria-label="Quick badges">${QUICK_BADGES.map((b) => {
+            const on = (d.badges || []).includes(b);
+            return `<button type="button" class="chip${on ? " on" : ""}" data-badge="${esc(b)}" data-badge-dish="${esc(d.id)}" aria-pressed="${on}">${esc(config.badges[b] || b)}</button>`;
+          }).join("")}</span>
         </div>
         <div class="row-actions">
+          <label class="price-edit" title="Price (half size). Enter saves">💸 <input type="number" min="0" max="999999" step="0.01" value="${esc(d.price)}" data-price="${esc(d.id)}" aria-label="Price of ${esc(dishName(d))}"> <span>EGP</span></label>
           <label class="switch" title="Visible on menu"><input type="checkbox" data-visible="${esc(d.id)}" ${d.is_visible ? "checked" : ""}> 👁</label>
+          <a class="btn small ghost" href="${esc(siteLink(d))}" target="_blank" rel="noopener" title="View on site">↗ Site</a>
           <button class="btn small ghost" data-dup="${esc(d.id)}">Duplicate</button>
           <button class="btn small" data-edit="${esc(d.id)}">Edit</button>
           <button class="btn small danger" data-delete="${esc(d.id)}">Delete</button>
@@ -246,12 +393,13 @@ function syncDishBulk(rows = visibleDishRows()) {
   const n = selectedDishes.size;
   $("#dish-count").textContent = `${n} selected`;
   $$("[data-bulk-dish]").forEach((b) => (b.disabled = n === 0));
+  $("#bulk-cat").disabled = $("#bulk-badge").disabled = n === 0;
   const all = $("#dish-all");
   all.checked = rows.length > 0 && rows.every((d) => selectedDishes.has(d.id));
   all.indeterminate = !all.checked && rows.some((d) => selectedDishes.has(d.id));
 }
 
-["#dish-search", "#dish-cat", "#dish-vis"].forEach((sel) => $(sel).addEventListener("input", renderDishes));
+["#dish-search", "#dish-cat", "#dish-vis", "#dish-sort"].forEach((sel) => $(sel).addEventListener("input", renderDishes));
 $("#dish-all").addEventListener("change", (e) => {
   visibleDishRows().forEach((d) => (e.target.checked ? selectedDishes.add(d.id) : selectedDishes.delete(d.id)));
   renderDishes();
@@ -261,7 +409,66 @@ async function setVisible(ids, visible) {
   await Promise.all(ids.map((id) => api(`/api/admin/dishes/${id}`, { method: "PUT", body: JSON.stringify({ is_visible: visible }) })));
 }
 
+async function savePrice(input) {
+  const id = input.dataset.price;
+  const d = dishes.find((x) => x.id === id);
+  const price = Number(input.value);
+  if (!d || input.value === "" || price === Number(d.price)) return;
+  if (!Number.isFinite(price) || price < 0) {
+    input.value = d.price;
+    return toast("Price must be 0 or more", { type: "error" });
+  }
+  const old = d.price;
+  input.disabled = true;
+  try {
+    await api(`/api/admin/dishes/${id}`, { method: "PUT", body: JSON.stringify({ price }) });
+    d.price = Math.round(price * 100) / 100;
+    input.classList.add("saved");
+    setTimeout(() => input.classList.remove("saved"), 900);
+    toast(`${dishName(d)}: ${egp(old)} → ${egp(d.price)}`, {
+      undo: async () => {
+        await api(`/api/admin/dishes/${id}`, { method: "PUT", body: JSON.stringify({ price: old }) });
+        await loadDishes();
+      },
+    });
+  } catch (err) {
+    input.value = old;
+    fail(err);
+  } finally {
+    input.disabled = false;
+  }
+}
+
+async function replacePhoto(id, file) {
+  const d = dishes.find((x) => x.id === id);
+  if (!d || !file) return;
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) return toast("That's not a JPG, PNG, WebP or GIF 🙃", { type: "error" });
+  const row = $(`#dish-list li[data-id="${CSS.escape(id)}"]`);
+  row?.classList.add("uploading");
+  try {
+    const fd = new FormData();
+    fd.append("photo", await shrink(file), "photo.jpg");
+    const { photo_url } = await api(`/api/admin/dishes/${id}/photo`, { method: "POST", body: fd });
+    d.photo_url = photo_url;
+    renderDishes();
+    toast(`📸 New photo for ${dishName(d)}`);
+  } catch (err) {
+    fail(err);
+  } finally {
+    row?.classList.remove("uploading");
+  }
+}
+
+$("#dish-list").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.dataset.price) {
+    e.preventDefault();
+    savePrice(e.target);
+  }
+});
+
 $("#dish-list").addEventListener("change", async (e) => {
+  if (e.target.dataset.price) return savePrice(e.target);
+  if (e.target.dataset.photo) return replacePhoto(e.target.dataset.photo, e.target.files[0]);
   const pick = e.target.dataset.pick;
   if (pick) {
     e.target.checked ? selectedDishes.add(pick) : selectedDishes.delete(pick);
@@ -292,6 +499,8 @@ $("#dish-list").addEventListener("click", async (e) => {
     $("#dish-search").value = $("#dish-cat").value = $("#dish-vis").value = "";
     return renderDishes();
   }
+  const chip = e.target.closest("[data-badge-dish]");
+  if (chip) return toggleBadge(chip);
   const { edit: editId, delete: deleteId, dup: dupId } = e.target.dataset;
   if (editId) openDish(dishes.find((d) => d.id === editId));
   try {
@@ -315,15 +524,70 @@ $("#dish-list").addEventListener("click", async (e) => {
   }
 });
 
+async function toggleBadge(chip) {
+  const d = dishes.find((x) => x.id === chip.dataset.badgeDish);
+  if (!d) return;
+  const badge = chip.dataset.badge;
+  const before = [...(d.badges || [])];
+  const next = before.includes(badge) ? before.filter((b) => b !== badge) : [...before, badge];
+  chip.disabled = true;
+  try {
+    await api(`/api/admin/dishes/${d.id}`, { method: "PUT", body: JSON.stringify({ badges: next }) });
+    d.badges = next;
+    renderDishes();
+    toast(`${dishName(d)} ${next.includes(badge) ? "got" : "lost"} ${config.badges[badge] || badge}`, {
+      undo: async () => {
+        await api(`/api/admin/dishes/${d.id}`, { method: "PUT", body: JSON.stringify({ badges: before }) });
+        await loadDishes();
+      },
+    });
+  } catch (err) {
+    chip.disabled = false;
+    fail(err);
+  }
+}
+
+// Drag a photo file onto a dish's picture to replace it
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+$("#dish-list").addEventListener("dragover", (e) => {
+  const zone = e.target.closest?.("[data-drop]");
+  if (!zone || dragged || !hasFiles(e)) return;
+  e.preventDefault();
+  zone.classList.add("over");
+});
+$("#dish-list").addEventListener("dragleave", (e) => e.target.closest?.("[data-drop]")?.classList.remove("over"));
+$("#dish-list").addEventListener("drop", (e) => {
+  const zone = e.target.closest?.("[data-drop]");
+  if (!zone || dragged || !hasFiles(e)) return;
+  e.preventDefault();
+  zone.classList.remove("over");
+  replacePhoto(zone.dataset.drop, e.dataTransfer.files[0]);
+});
+
 $$("[data-bulk-dish]").forEach((btn) =>
   btn.addEventListener("click", async () => {
     const ids = [...selectedDishes];
     const action = btn.dataset.bulkDish;
     if (!ids.length) return;
     if (action === "delete" && !confirm(`Delete ${ids.length} dish${ids.length > 1 ? "es" : ""} and all their reviews? This can't be undone.`)) return;
+    const cat = $("#bulk-cat").value;
+    const badge = $("#bulk-badge").value;
+    if (action === "category" && !cat) return toast("Pick a category first", { type: "error" });
+    if (action.startsWith("badge") && !badge) return toast("Pick a badge first", { type: "error" });
     btn.disabled = true;
     try {
-      if (action === "delete") {
+      if (action === "category" || action.startsWith("badge")) {
+        const before = ids.map((id) => dishes.find((d) => d.id === id)).filter(Boolean).map((d) => ({ id: d.id, category: d.category, badges: [...(d.badges || [])] }));
+        const body = action === "category" ? { ids, fields: { category: cat } } : { ids, [action === "badge-add" ? "add_badges" : "remove_badges"]: [badge] };
+        const r = await api("/api/admin/dishes/bulk", { method: "POST", body: JSON.stringify(body) });
+        const what = action === "category" ? `moved to ${config.categories.find((c) => c.slug === cat)?.en || cat}` : `${action === "badge-add" ? "+" : "−"} ${config.badges[badge] || badge}`;
+        toast(`${r.updated} dish${r.updated === 1 ? "" : "es"} ${what}`, {
+          undo: async () => {
+            await Promise.all(before.map((b) => api(`/api/admin/dishes/${b.id}`, { method: "PUT", body: JSON.stringify(action === "category" ? { category: b.category } : { badges: b.badges }) })));
+            await loadDishes();
+          },
+        });
+      } else if (action === "delete") {
         await Promise.all(ids.map((id) => api(`/api/admin/dishes/${id}`, { method: "DELETE" })));
         selectedDishes.clear();
         toast(`Deleted ${ids.length} dish${ids.length > 1 ? "es" : ""}`);
@@ -903,7 +1167,11 @@ function visibleReviewRows() {
   const q = $("#review-search").value.trim().toLowerCase();
   const dish = $("#review-dish").value;
   const sort = $("#review-sort").value;
-  const rows = reviews.filter((r) => (!dish || r.dish_id === dish) && (!q || [r.author_name, r.body, r.dish_name].some((x) => String(x || "").toLowerCase().includes(q))));
+  const show = $("#review-show").value;
+  const SHOW = { starred: (r) => r.highlighted, low: (r) => r.chili_rating <= 2, high: (r) => r.chili_rating >= 4 };
+  const rows = reviews.filter(
+    (r) => (!dish || r.dish_id === dish) && (!SHOW[show] || SHOW[show](r)) && (!q || [r.author_name, r.body, r.dish_name].some((x) => String(x || "").toLowerCase().includes(q))),
+  );
   const byDate = (a, b) => b.created_at.localeCompare(a.created_at);
   const sorters = {
     newest: byDate,
@@ -923,18 +1191,27 @@ function renderReviews() {
           .filter(([, n]) => n > 0)
           .map(([emoji, n]) => `${esc(emoji)} ${n}`)
           .join(" ");
+        const reply = replies.get(r.id);
         return `
-      <li>
+      <li class="${r.highlighted ? "starred" : ""}">
         <input type="checkbox" class="pick" data-pick="${esc(r.id)}" ${selectedReviews.has(r.id) ? "checked" : ""} aria-label="Select review by ${esc(r.author_name)}">
         <div class="grow">
           <strong dir="auto">${esc(r.author_name)}</strong> on <em dir="auto">${esc(r.dish_name)}</em> · ${"🌶️".repeat(r.chili_rating)} · 😬 ${r.awkward_rating}/5
           <p dir="auto">${esc(r.body)}</p>
           <small>${esc(when(r.created_at))}${reactions ? ` · ${reactions}` : ""}</small>
+          ${reply ? `<blockquote class="ai-reply" dir="auto"><small>↩️ ${esc(r.dish_name)} replies:</small> ${esc(reply)} <button class="btn small ghost" type="button" data-copy-reply="${esc(r.id)}">📋 Copy</button></blockquote>` : ""}
         </div>
-        <button class="btn small danger" data-delete-review="${esc(r.id)}">Delete</button>
+        <div class="row-actions">
+          <button class="btn small ghost star-btn" type="button" data-star="${esc(r.id)}" aria-pressed="${Boolean(r.highlighted)}" title="${r.highlighted ? "Remove highlight" : "Highlight"}">${r.highlighted ? "⭐" : "☆"}<span class="sr-only"> Highlight</span></button>
+          <button class="btn small ghost" type="button" data-reply="${esc(r.id)}" ${r.dish_visible ? "" : `disabled title="The dish is hidden, so it can't reply"`}>✨ Reply as dish</button>
+          <button class="btn small danger" data-delete-review="${esc(r.id)}">Delete</button>
+        </div>
       </li>`;
       })
       .join("") || `<li class="state">${reviews.length ? "No reviews match these filters." : "No reviews yet. They'll show up here when people start roasting the dishes."}</li>`;
+  const avg = rows.length ? Math.round((rows.reduce((n, r) => n + r.chili_rating, 0) / rows.length) * 10) / 10 : null;
+  $("#review-summary").textContent = rows.length ? `${rows.length} review${rows.length === 1 ? "" : "s"} · avg ${avg} 🌶️ · ${reviews.filter((r) => r.highlighted).length} highlighted ⭐` : "";
+  $("#review-export").disabled = rows.length === 0;
   syncReviewBulk(rows);
 }
 
@@ -947,7 +1224,8 @@ function syncReviewBulk(rows = visibleReviewRows()) {
   all.indeterminate = !all.checked && rows.some((r) => selectedReviews.has(r.id));
 }
 
-["#review-search", "#review-dish", "#review-sort"].forEach((sel) => $(sel).addEventListener("input", renderReviews));
+["#review-search", "#review-dish", "#review-sort", "#review-show"].forEach((sel) => $(sel).addEventListener("input", renderReviews));
+const replies = new Map(); // review id -> AI reply text (this session only, not saved)
 $("#review-all").addEventListener("change", (e) => {
   visibleReviewRows().forEach((r) => (e.target.checked ? selectedReviews.add(r.id) : selectedReviews.delete(r.id)));
   renderReviews();
@@ -960,7 +1238,20 @@ $("#review-list").addEventListener("change", (e) => {
 });
 
 $("#review-list").addEventListener("click", async (e) => {
-  const id = e.target.dataset.deleteReview;
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  if (btn.dataset.star) return toggleStar(btn);
+  if (btn.dataset.reply) return replyAsDish(btn);
+  if (btn.dataset.copyReply) {
+    try {
+      await navigator.clipboard.writeText(replies.get(btn.dataset.copyReply) || "");
+      toast("Copied 📋");
+    } catch {
+      toast("Couldn't copy, select the text instead", { type: "error" });
+    }
+    return;
+  }
+  const id = btn.dataset.deleteReview;
   if (!id || !confirm("Delete this review?")) return;
   try {
     await api(`/api/admin/reviews/${id}`, { method: "DELETE" });
@@ -970,6 +1261,46 @@ $("#review-list").addEventListener("click", async (e) => {
   } catch (err) {
     fail(err);
   }
+});
+
+async function toggleStar(btn) {
+  const r = reviews.find((x) => x.id === btn.dataset.star);
+  if (!r) return;
+  btn.disabled = true;
+  try {
+    await api(`/api/admin/reviews/${r.id}/highlight`, { method: "POST", body: JSON.stringify({ on: !r.highlighted }) });
+    r.highlighted = !r.highlighted;
+    renderReviews();
+    toast(r.highlighted ? "⭐ Highlighted" : "Highlight removed");
+  } catch (err) {
+    btn.disabled = false;
+    fail(err);
+  }
+}
+
+// Uses the public /api/ai/review-reply (same text the site shows); nothing is posted anywhere
+async function replyAsDish(btn) {
+  const r = reviews.find((x) => x.id === btn.dataset.reply);
+  if (!r) return;
+  btn.disabled = true;
+  btn.textContent = "✨ Thinking…";
+  try {
+    const out = await api("/api/ai/review-reply", { method: "POST", body: JSON.stringify({ dish_id: r.dish_id, review_id: r.id }) });
+    replies.set(r.id, out.text);
+    renderReviews();
+  } catch (err) {
+    toast(err.status === 503 ? "✨ AI is off right now. Check the 🤖 AI status card." : err.message, { type: "error" });
+    btn.disabled = false;
+    btn.textContent = "✨ Reply as dish";
+  }
+}
+
+$("#review-export").addEventListener("click", () => {
+  const rows = visibleReviewRows();
+  const header = ["created_at", "dish", "author_name", "chili_rating", "awkward_rating", "body", "highlighted", "reactions"];
+  const data = rows.map((r) => [r.created_at, r.dish_name, r.author_name, r.chili_rating, r.awkward_rating, r.body, r.highlighted ? "yes" : "", Object.entries(r.reactions || {}).map(([k, n]) => `${k}${n}`).join(" ")]);
+  downloadFile(toCsv([header, ...data]), `zesty-reviews-${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8");
+  toast(`Exported ${rows.length} reviews`);
 });
 
 $("#review-bulk-delete").addEventListener("click", async () => {
@@ -987,21 +1318,43 @@ $("#review-bulk-delete").addEventListener("click", async () => {
 
 // ---- Orders ----
 const itemLine = (i) => `${i.qty}× ${i.name_en || i.name_ar} (${i.size})${i.addons?.length ? ` + ${i.addons.join(", ")}` : ""}`;
+const firstName = (name) => String(name || "").trim().split(/\s+/)[0] || "?";
+const dayKey = (iso) => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 async function loadOrders() {
   if (!orders.length) loading("#order-list");
   orders = await api("/api/admin/orders");
+  const counts = new Map();
+  for (const o of orders) {
+    const key = firstName(o.customer_name).toLowerCase();
+    const c = counts.get(key) || { name: firstName(o.customer_name), n: 0 };
+    c.n++;
+    counts.set(key, c);
+  }
+  const current = $("#order-customer").value;
+  $("#order-customer").innerHTML =
+    `<option value="">All customers</option>` +
+    [...counts.entries()]
+      .sort((a, b) => b[1].n - a[1].n || a[1].name.localeCompare(b[1].name))
+      .map(([key, c]) => `<option value="${esc(key)}">${esc(c.name)} (${c.n})</option>`)
+      .join("");
+  $("#order-customer").value = counts.has(current) ? current : "";
   renderOrders();
 }
 
 function visibleOrderRows() {
   const q = $("#order-search").value.trim().toLowerCase();
+  const who = $("#order-customer").value;
   let since = 0;
   if (orderRange === "today") since = new Date().setHours(0, 0, 0, 0);
   if (orderRange === "7d") since = new Date().setHours(0, 0, 0, 0) - 6 * 24 * 60 * 60 * 1000;
   return orders.filter(
     (o) =>
       (!since || new Date(o.created_at).getTime() >= since) &&
+      (!who || firstName(o.customer_name).toLowerCase() === who) &&
       (!q ||
         String(o.order_number).includes(q.replace(/^#/, "")) ||
         String(o.customer_name || "").toLowerCase().includes(q) ||
@@ -1012,8 +1365,24 @@ function visibleOrderRows() {
 function renderOrders() {
   const rows = visibleOrderRows();
   const sum = rows.reduce((s, o) => s + Number(o.total || 0), 0);
-  $("#order-summary").textContent = `${rows.length} order${rows.length === 1 ? "" : "s"} · ${egp(sum)}`;
+  $("#order-summary").textContent = `${rows.length} order${rows.length === 1 ? "" : "s"} · ${egp(sum)}${rows.length ? ` · avg ${egp(sum / rows.length)}` : ""}`;
   $("#export-csv").disabled = rows.length === 0;
+
+  const perDay = new Map();
+  for (const o of rows) {
+    const k = dayKey(o.created_at);
+    const d = perDay.get(k) || { n: 0, items: 0, total: 0 };
+    d.n++;
+    d.items += (o.items || []).reduce((n, i) => n + Number(i.qty || 0), 0);
+    d.total += Number(o.total || 0);
+    perDay.set(k, d);
+  }
+  $("#day-totals").hidden = rows.length === 0;
+  $("#day-table").innerHTML = `<thead><tr><th scope="col">Day</th><th scope="col">Orders</th><th scope="col">Items</th><th scope="col">Total</th></tr></thead><tbody>${[...perDay.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([k, d]) => `<tr><td>${esc(new Date(`${k}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }))}</td><td>${d.n}</td><td>${d.items}</td><td>${egp(d.total)}</td></tr>`)
+    .join("")}</tbody><tfoot><tr><th scope="row">Total</th><td>${rows.length}</td><td>${[...perDay.values()].reduce((n, d) => n + d.items, 0)}</td><td>${egp(sum)}</td></tr></tfoot>`;
+
   $("#order-list").innerHTML =
     rows
       .map(
@@ -1028,22 +1397,28 @@ function renderOrders() {
           <p>Subtotal ${egp(o.subtotal)}${(o.fees || []).map((f) => ` · ${esc(f.en)} ${egp(f.amount)}`).join("")}</p>
           ${o.note ? `<p dir="auto">📝 ${esc(o.note)}</p>` : ""}
         </details>
-        <button class="btn small danger" data-delete-order="${esc(o.id)}" data-number="${esc(o.order_number)}">Delete</button>
+        <div class="row-actions">
+          <button class="btn small ghost" data-receipt="${esc(o.id)}">🧾 Receipt</button>
+          <button class="btn small danger" data-delete-order="${esc(o.id)}" data-number="${esc(o.order_number)}">Delete</button>
+        </div>
       </li>`,
       )
-      .join("") || `<li class="state">${orders.length ? "No orders match. Try another range or search." : "No orders yet."}</li>`;
+      .join("") || `<li class="state">${orders.length ? "No orders match. Try another range, customer or search." : "No orders yet."}</li>`;
 }
 
 $("#order-search").addEventListener("input", renderOrders);
-$$(".seg-btn").forEach((btn) =>
+$("#order-customer").addEventListener("input", renderOrders);
+$$("[data-range]").forEach((btn) =>
   btn.addEventListener("click", () => {
     orderRange = btn.dataset.range;
-    $$(".seg-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    $$("[data-range]").forEach((b) => b.classList.toggle("active", b === btn));
     renderOrders();
   }),
 );
 
 $("#order-list").addEventListener("click", async (e) => {
+  const receiptId = e.target.dataset.receipt;
+  if (receiptId) return openReceipt(orders.find((o) => o.id === receiptId));
   const id = e.target.dataset.deleteOrder;
   if (!id || !confirm(`Delete order #${e.target.dataset.number}? It also stops counting on the leaderboard.`)) return;
   try {
@@ -1055,6 +1430,36 @@ $("#order-list").addEventListener("click", async (e) => {
   }
 });
 
+// Printable receipt: the print stylesheet hides everything except #receipt
+function openReceipt(o) {
+  if (!o) return;
+  const line = (label, amount, cls = "") => `<div class="r-line ${cls}"><span dir="auto">${label}</span><span>${egp(amount)}</span></div>`;
+  $("#receipt").innerHTML = `
+    <div class="r-head">
+      <strong>🌶️ ZESTY KITCHEN</strong>
+      <small>مطبخ الزملاء · coworkers, freshly roasted</small>
+    </div>
+    <div class="r-meta">
+      <div><span>Order</span><b>#${esc(o.order_number)}</b></div>
+      <div><span>Date</span><b>${esc(when(o.created_at))}</b></div>
+      <div><span>Customer</span><b dir="auto">${esc(o.customer_name)}</b></div>
+      <div><span>Payment</span><b>${esc(PAYMENT_LABELS[o.payment_method] || o.payment_method)}</b></div>
+    </div>
+    <div class="r-items">${(o.items || []).map((i) => line(esc(itemLine(i)), Number(i.unit_price) * Number(i.qty))).join("")}</div>
+    ${line("Subtotal", o.subtotal, "r-sub")}
+    ${(o.fees || []).map((f) => line(esc(f.en), f.amount, "r-fee")).join("")}
+    ${line("TOTAL", o.total, "r-total")}
+    ${o.note ? `<p class="r-note" dir="auto">📝 ${esc(o.note)}</p>` : ""}
+    <p class="r-foot">No refunds. The coworker has already been eaten. 🫡<br>شكرًا لاختيارك الدراما</p>`;
+  $("#receipt-dialog").showModal();
+}
+$("#receipt-print").addEventListener("click", () => {
+  document.body.classList.add("printing-receipt");
+  window.print();
+});
+window.addEventListener("afterprint", () => document.body.classList.remove("printing-receipt"));
+$("#receipt-close").addEventListener("click", () => $("#receipt-dialog").close());
+
 // Excel needs the BOM to read UTF-8 (Arabic). Prefix formula-like cells so they open as text.
 function toCsv(rows) {
   const cell = (v) => {
@@ -1063,6 +1468,14 @@ function toCsv(rows) {
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return "﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n");
+}
+function downloadFile(content, filename, type) {
+  const url = URL.createObjectURL(content instanceof Blob ? content : new Blob([content], { type }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 $("#export-csv").addEventListener("click", () => {
@@ -1080,23 +1493,426 @@ $("#export-csv").addEventListener("click", () => {
     Number(o.total),
     o.note || "",
   ]);
-  const url = URL.createObjectURL(new Blob([toCsv([header, ...data])], { type: "text/csv;charset=utf-8" }));
-  const a = Object.assign(document.createElement("a"), { href: url, download: `zesty-orders-${orderRange}-${new Date().toISOString().slice(0, 10)}.csv` });
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadFile(toCsv([header, ...data]), `zesty-orders-${orderRange}-${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8");
   toast(`Exported ${rows.length} orders`);
 });
 
-$("#reset-board").addEventListener("click", async () => {
-  if (!confirm("Reset the leaderboard? Old orders stay in this list.")) return;
+// ---- Settings ----
+const SHORTCUTS = [
+  ["1 – 5", "Switch tabs (Overview, Dishes, Reviews, Orders, Settings)"],
+  ["n", "New dish"],
+  ["/", "Search in the current tab"],
+  ["c", "Open / close the 👨‍🍳 chef assistant"],
+  ["?", "This help"],
+  ["Ctrl/⌘ + S", "Save the dish you're editing"],
+  ["Esc", "Close a dialog or the chef chat"],
+  ["Enter", "In a price box: save the price"],
+];
+const shortcutsHtml = () => `<table class="data-table keys"><tbody>${SHORTCUTS.map(([k, d]) => `<tr><td>${k.split(" + ").map((x) => `<kbd>${esc(x)}</kbd>`).join(" + ")}</td><td>${esc(d)}</td></tr>`).join("")}</tbody></table>`;
+const todayInput = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+async function loadSettings() {
+  $("#shortcuts-inline").innerHTML = shortcutsHtml();
+  applyTheme(themeMode());
+  if (!$("#board-date").value) $("#board-date").value = todayInput();
+  $("#board-date").max = todayInput();
+  const [s, st] = await Promise.all([api("/api/admin/settings"), api("/api/admin/ai/status").catch(() => null)]);
+  $("#board-since").innerHTML = s.leaderboard_since ? `Counting since: <strong>${esc(when(s.leaderboard_since))}</strong>` : "Counting since: <strong>the beginning of time</strong> (never reset)";
+  const used = st?.usage.used ?? s.ai.used_today;
+  const cap = st?.usage.cap ?? s.ai.cap;
+  const pct = cap ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+  $("#settings-ai").innerHTML = `
+    <p><span class="pill ${s.ai.enabled ? "on" : "off"}">${s.ai.enabled ? "✨ AI on" : "😴 AI off"}</span> ${st ? st.providers.filter((p) => p.connected).map((p) => `<span class="pill on">${esc(p.label)}</span>`).join(" ") : ""}</p>
+    <div class="meter-row"><span><b>${used}</b> / ${cap ?? "∞"} calls today</span><span class="meter" role="meter" aria-label="AI calls used today" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%" class="${pct >= 90 ? "hot" : ""}"></span></span></div>
+    <p class="hint">Every AI button, the waiter chat and each chef-assistant step count as one call. When the cap is hit, the site falls back to canned jokes until midnight UTC.</p>`;
+}
+
+async function resetBoard(since) {
+  const label = since ? new Date(since).toLocaleDateString() : "now";
+  if (!confirm(`Reset the public leaderboard to count from ${label}? Old orders stay in the Orders tab.`)) return;
   try {
-    await api("/api/admin/leaderboard/reset", { method: "POST" });
-    toast("Leaderboard reset 🏆");
+    const r = await api("/api/admin/leaderboard/reset", { method: "POST", body: JSON.stringify(since ? { since } : {}) });
+    toast(`Leaderboard counts from ${when(r.since)} 🏆`);
+    loadSettings().catch(fail);
   } catch (err) {
     fail(err);
   }
+}
+$("#board-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const v = $("#board-date").value;
+  if (!v) return;
+  resetBoard(new Date(`${v}T00:00:00`).toISOString());
+});
+$("#board-now").addEventListener("click", () => resetBoard(null));
+
+$("#export-json").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/admin/export", { credentials: "same-origin" });
+    if (res.status === 401) return showLogin();
+    if (!res.ok) throw new Error(`Export failed (${res.status})`);
+    const blob = await res.blob();
+    downloadFile(blob, `zesty-backup-${new Date().toISOString().slice(0, 10)}.json`);
+    toast(`Backup downloaded (${Math.max(1, Math.round(blob.size / 1024))} KB) 💾`);
+  } catch (err) {
+    fail(err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+let importDishes = null;
+async function readImport(file) {
+  importDishes = null;
+  $("#import-go").disabled = true;
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const list = Array.isArray(data) ? data : data?.dishes;
+    if (!Array.isArray(list) || !list.length) throw new Error("No dishes in that file (expected a list or { dishes: [...] })");
+    importDishes = list;
+    $("#import-preview").textContent = `📄 ${file.name}: ${list.length} dish${list.length === 1 ? "" : "es"} found${data?.exported_at ? ` (backup from ${when(data.exported_at)})` : ""}. Photos are not imported.`;
+    $("#import-go").disabled = false;
+  } catch (err) {
+    $("#import-preview").textContent = `❌ ${err.message.startsWith("No dishes") ? err.message : "That's not valid JSON."}`;
+  }
+}
+$("#import-file").addEventListener("change", (e) => readImport(e.target.files[0]));
+$("#import-drop").addEventListener("dragover", (e) => {
+  e.preventDefault();
+  e.currentTarget.classList.add("over");
+});
+$("#import-drop").addEventListener("dragleave", (e) => e.currentTarget.classList.remove("over"));
+$("#import-drop").addEventListener("drop", (e) => {
+  e.preventDefault();
+  e.currentTarget.classList.remove("over");
+  readImport(e.dataTransfer.files[0]);
+});
+$("#import-go").addEventListener("click", async (e) => {
+  if (!importDishes) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    const r = await api("/api/admin/dishes/import", { method: "POST", contentType: "application/vnd.zk-import+json", body: JSON.stringify({ dishes: importDishes, skip_existing: $("#import-skip").checked }) });
+    $("#import-preview").textContent = `✅ Imported ${r.created} dish${r.created === 1 ? "" : "es"}${r.skipped ? `, skipped ${r.skipped} that already exist` : ""}.`;
+    toast(`Imported ${r.created} dishes 📥`);
+    importDishes = null;
+    $("#import-file").value = "";
+    dishes = await api("/api/admin/dishes").catch(() => dishes);
+  } catch (err) {
+    $("#import-preview").textContent = `❌ ${err.message}`;
+    btn.disabled = false;
+    if (err.status === 401) showLogin();
+  }
+});
+
+$("#shortcuts-open").addEventListener("click", () => openShortcuts());
+$("#shortcuts-close").addEventListener("click", () => $("#shortcuts-dialog").close());
+function openShortcuts() {
+  $("#shortcuts-list").innerHTML = shortcutsHtml();
+  if (!$("#shortcuts-dialog").open) $("#shortcuts-dialog").showModal();
+}
+
+// ---- 👨‍🍳 Chef assistant ----
+const CHEF_KEY = "zk_chef_log";
+const CHEF_WIDE_KEY = "zk_chef_wide";
+let chefLog = []; // [{ role: "user"|"assistant", text, cards?, error? }]
+let chefBusy = false;
+let chefReady = false;
+const session = {
+  get() {
+    try {
+      return JSON.parse(sessionStorage.getItem(CHEF_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  },
+  set(v) {
+    try {
+      sessionStorage.setItem(CHEF_KEY, JSON.stringify(v.slice(-40)));
+    } catch {
+      /* storage full or blocked: the chat just won't survive a reload */
+    }
+  },
+};
+const CHIPS = [
+  { label: "🔍 What needs fixing?", run: () => ["find_issues", {}] },
+  { label: "📊 Today's stats", run: () => ["order_stats", { range: "today" }] },
+  { label: "🗓️ This week", run: () => ["order_stats", { range: "7d" }] },
+  { label: "🙈 Hide sold-out", run: () => ["set_visibility", { badge: "sold_out", visible: false }] },
+  {
+    label: "✍️ Write copy for dishes missing descriptions",
+    run: () => {
+      const ids = dishes.filter((d) => !String(d.description || "").trim()).slice(0, 5).map((d) => d.id);
+      return ids.length ? ["write_dish_copy", { ids }] : null;
+    },
+    empty: "Every dish already has a description. Chef's kiss 🤌",
+  },
+  { label: "💡 Menu ideas", run: () => ["suggest_menu_ideas", { count: 3 }] },
+];
+
+function syncChefStatus() {
+  const el = $("#chef-status");
+  if (!el) return;
+  el.innerHTML = aiEnabled ? `<span class="dot on"></span> AI on · quick actions run instantly` : `<span class="dot"></span> AI off · quick actions still work`;
+}
+
+async function chefInit() {
+  if (chefReady) return;
+  chefReady = true;
+  chefLog = session.get();
+  $("#chef-chips").innerHTML = CHIPS.map((c, i) => `<button type="button" class="chip" data-chip="${i}">${esc(c.label)}</button>`).join("");
+  let wide = false;
+  try {
+    wide = localStorage.getItem(CHEF_WIDE_KEY) === "1";
+  } catch {
+    wide = false;
+  }
+  setChefWide(wide);
+  renderChef();
+  try {
+    aiEnabled = Boolean((await api("/api/admin/agent")).enabled);
+  } catch {
+    aiEnabled = false;
+  }
+  syncChefStatus();
+}
+
+function setChefWide(on) {
+  $("#chef").classList.toggle("wide", on);
+  $("#chef-wide").setAttribute("aria-pressed", String(on));
+  $("#chef-wide").title = on ? "Shrink" : "Expand";
+  $("#chef-wide").textContent = on ? "⤡" : "⤢";
+  try {
+    localStorage.setItem(CHEF_WIDE_KEY, on ? "1" : "0");
+  } catch {
+    /* not remembered */
+  }
+}
+
+function openChef() {
+  $("#chef").hidden = false;
+  $("#chef-fab").setAttribute("aria-expanded", "true");
+  document.body.classList.add("chef-open");
+  renderChef();
+  setTimeout(() => $("#chef-input").focus(), 30);
+}
+function closeChef() {
+  if ($("#chef").hidden) return;
+  $("#chef").hidden = true;
+  $("#chef-fab").setAttribute("aria-expanded", "false");
+  document.body.classList.remove("chef-open");
+  $("#chef-fab").focus();
+}
+const toggleChef = () => ($("#chef").hidden ? openChef() : closeChef());
+$("#chef-fab").addEventListener("click", toggleChef);
+$("#chef-close").addEventListener("click", closeChef);
+$("#chef-wide").addEventListener("click", () => setChefWide(!$("#chef").classList.contains("wide")));
+$("#chef-clear").addEventListener("click", () => {
+  chefLog = [];
+  session.set(chefLog);
+  renderChef();
+  $("#chef-input").focus();
+});
+
+const cellHtml = (v, isTime) => (isTime ? esc(when(v)) : esc(v));
+function chefCard(c, ei, ci) {
+  const title = c.title ? `<div class="cc-title">${esc(c.title)}</div>` : "";
+  if (c.kind === "table") {
+    if (!c.rows?.length) return `<div class="cc">${title}<p class="hint">Nothing here.</p></div>`;
+    return `<div class="cc">${title}<div class="table-wrap"><table class="data-table"><thead><tr>${c.columns.map((h) => `<th scope="col">${esc(h)}</th>`).join("")}</tr></thead><tbody>${c.rows
+      .map((r) => `<tr>${r.map((v, i) => `<td dir="auto">${cellHtml(v, i === c.time_col)}</td>`).join("")}</tr>`)
+      .join("")}</tbody></table></div></div>`;
+  }
+  if (c.kind === "stats") return `<div class="cc">${title}<div class="cc-kpis">${c.kpis.map((k) => `<div class="kpi"><span class="kpi-label">${esc(k.label)}</span><strong class="kpi-value">${esc(k.value)}</strong></div>`).join("")}</div></div>`;
+  if (c.kind === "dishes" || c.kind === "issues") {
+    if (!c.items?.length) return `<div class="cc">${title}</div>`;
+    return `<div class="cc">${title}<ul class="cc-dishes">${c.items
+      .map(
+        (d) => `<li>
+          ${d.photo_url ? `<img src="${esc(d.photo_url)}" alt="">` : `<span class="noimg">🍽️</span>`}
+          <div class="grow"><strong dir="auto">${esc(d.name)}</strong>
+            <small>${esc(d.price)} EGP · ${d.visible ? "👁 visible" : "🙈 hidden"}${d.detail ? ` · <span dir="auto">${esc(d.detail)}</span>` : ""}</small>
+            ${(d.issues || []).length ? `<span class="meta">${d.issues.map((i) => `<span class="tag">${esc(i)}</span>`).join("")}</span>` : ""}
+          </div>
+          <button class="btn small ghost" type="button" data-chef-edit="${esc(d.id)}">${c.kind === "issues" ? "Fix" : "Edit"}</button>
+        </li>`,
+      )
+      .join("")}</ul></div>`;
+  }
+  if (c.kind === "ideas") {
+    return `<div class="cc">${title}<ul class="cc-ideas">${c.items
+      .map(
+        (x, xi) => `<li>
+          <div><strong dir="auto">${esc(x.name_ar)}</strong>${x.name_en ? ` · <span dir="auto">${esc(x.name_en)}</span>` : ""}</div>
+          <small dir="auto">💼 ${esc(x.job_title)} · ${esc(x.price)} EGP · ${esc(x.category)}</small>
+          <p dir="auto">${esc(x.description)}</p>
+          ${x.catchphrase ? `<p class="hint" dir="auto">💬 “${esc(x.catchphrase)}”</p>` : ""}
+          <button class="btn small" type="button" data-idea="${ei}:${ci}:${xi}" ${x.added ? "disabled" : ""}>${x.added ? "✅ Added (hidden)" : "➕ Add as hidden dish"}</button>
+        </li>`,
+      )
+      .join("")}</ul></div>`;
+  }
+  if (c.kind === "confirm") {
+    const state = c.resolved === "done" ? `<p class="cc-done">✅ Done</p>` : c.resolved === "cancelled" ? `<p class="hint">Cancelled. Nothing changed.</p>` : c.resolved === "failed" ? `<p class="hint">Didn't go through (see below). Ask again if you still want it.</p>` : `<div class="btn-group"><button class="btn small danger" type="button" data-confirm="${ei}:${ci}">✅ Yes, do it</button><button class="btn small ghost" type="button" data-cancel="${ei}:${ci}">Cancel</button></div>`;
+    return `<div class="cc cc-confirm"><p><strong>⚠️ Confirm:</strong> ${esc(c.text)}</p>${state}</div>`;
+  }
+  return `<div class="cc cc-${esc(c.tone || "ok")}"><p>${esc(c.text)}</p></div>`;
+}
+
+function renderChef() {
+  const log = $("#chef-log");
+  if (!log) return;
+  const intro = `<div class="msg bot"><div class="bubble">أهلًا يا شيف 👨‍🍳 I can edit dishes, hide/show them, pull real stats, write funny copy and clean up reviews. Deletes always ask you first. Try a quick action below 👇</div></div>`;
+  log.innerHTML =
+    intro +
+    chefLog
+      .map(
+        (m, ei) => `<div class="msg ${m.role === "user" ? "me" : "bot"}${m.error ? " err" : ""}">
+          ${m.text ? `<div class="bubble" dir="auto">${esc(m.text)}</div>` : ""}
+          ${(m.cards || []).map((c, ci) => chefCard(c, ei, ci)).join("")}
+        </div>`,
+      )
+      .join("") +
+    (chefBusy ? `<div class="msg bot"><div class="bubble typing" aria-label="Chef is thinking"><span></span><span></span><span></span></div></div>` : "");
+  log.scrollTop = log.scrollHeight;
+  $("#chef-send").disabled = chefBusy;
+  $$("#chef-chips .chip").forEach((b) => (b.disabled = chefBusy));
+}
+
+function chefHistory() {
+  return chefLog
+    .filter((m) => m.text && !m.local && (m.role === "user" || m.role === "assistant"))
+    .slice(-10)
+    .map((m) => ({ role: m.role, content: m.text }));
+}
+
+async function chefRequest(body, { userText } = {}) {
+  if (chefBusy) return;
+  if (userText) chefLog.push({ role: "user", text: userText, local: Boolean(body.run) });
+  chefBusy = true;
+  renderChef();
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const res = await api("/api/admin/agent", { method: "POST", body: JSON.stringify({ ...body, tz }) });
+    chefLog.push({ role: "assistant", text: res.reply, cards: res.cards || [], local: Boolean(body.run || body.confirm_token) });
+    applyChefActions(res.actions || []);
+    return res;
+  } catch (err) {
+    if (err.status === 401) return showLogin();
+    chefLog.push({ role: "assistant", text: `😬 ${err.message}`, error: true, local: true });
+  } finally {
+    chefBusy = false;
+    session.set(chefLog);
+    renderChef();
+  }
+}
+
+function applyChefActions(actions) {
+  const tabs = new Set(actions.filter((a) => a.type === "refresh").flatMap((a) => a.tabs || []));
+  if (!tabs.size) return;
+  if (tabs.has(currentTab)) LOADERS[currentTab]().catch(fail);
+  else if (tabs.has("dishes")) api("/api/admin/dishes").then((d) => (dishes = d)).catch(() => {});
+}
+
+function sendChef(text) {
+  const t = text.trim();
+  if (!t) return;
+  chefRequest({ messages: [...chefHistory(), { role: "user", content: t }] }, { userText: t });
+}
+
+function runChef(tool, args, label) {
+  chefRequest({ run: { tool, args } }, { userText: label });
+}
+
+$("#chef-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("#chef-input");
+  sendChef(input.value);
+  input.value = "";
+  input.style.height = "";
+});
+$("#chef-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    $("#chef-form").requestSubmit();
+  }
+});
+$("#chef-input").addEventListener("input", (e) => {
+  e.target.style.height = "";
+  e.target.style.height = `${Math.min(140, e.target.scrollHeight)}px`;
+});
+$("#chef-chips").addEventListener("click", (e) => {
+  const chip = CHIPS[e.target.closest("[data-chip]")?.dataset.chip];
+  if (!chip || chefBusy) return;
+  const run = chip.run();
+  if (!run) {
+    chefLog.push({ role: "user", text: chip.label, local: true }, { role: "assistant", text: chip.empty || "Nothing to do 🤷", local: true });
+    session.set(chefLog);
+    return renderChef();
+  }
+  runChef(run[0], run[1], chip.label);
+});
+
+$("#chef-log").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  const ref = (key) => {
+    const [ei, ci, xi] = btn.dataset[key].split(":").map(Number);
+    return { entry: chefLog[ei], card: chefLog[ei]?.cards?.[ci], xi };
+  };
+  if (btn.dataset.chefEdit) {
+    if (!dishes.some((d) => d.id === btn.dataset.chefEdit)) dishes = await api("/api/admin/dishes").catch(() => dishes);
+    const dish = dishes.find((d) => d.id === btn.dataset.chefEdit);
+    return dish ? openDish(dish) : toast("That dish doesn't exist anymore", { type: "error" });
+  }
+  if (btn.dataset.confirm) {
+    const { card } = ref("confirm");
+    if (!card || card.resolved) return;
+    const res = await chefRequest({ confirm_token: card.token }, { userText: "✅ Yes, do it" });
+    card.resolved = res?.done ? "done" : "failed";
+    session.set(chefLog);
+    return renderChef();
+  }
+  if (btn.dataset.cancel) {
+    const { card } = ref("cancel");
+    if (!card) return;
+    card.resolved = "cancelled";
+    chefLog.push({ role: "assistant", text: "Cancelled. Nothing was touched 🫡", local: true });
+    session.set(chefLog);
+    return renderChef();
+  }
+  if (btn.dataset.idea) {
+    const { card, xi } = ref("idea");
+    const idea = card?.items?.[xi];
+    if (!idea || idea.added) return;
+    btn.disabled = true;
+    try {
+      const { added, ...fields } = idea;
+      const d = await api("/api/admin/dishes", { method: "POST", body: JSON.stringify({ ...fields, is_visible: false }) });
+      idea.added = true;
+      session.set(chefLog);
+      renderChef();
+      toast(`Hired “${dishName(d)}” (hidden). Add a photo and show it when ready 🎉`);
+      applyChefActions([{ type: "refresh", tabs: ["dishes", "overview"] }]);
+    } catch (err) {
+      btn.disabled = false;
+      fail(err);
+    }
+  }
+});
+
+// "Ask the chef" buttons elsewhere in the admin
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-chef-run]");
+  if (!btn) return;
+  openChef();
+  runChef(btn.dataset.chefRun, {}, btn.textContent.trim());
 });
 
 // ---- Keyboard ----
@@ -1115,8 +1931,13 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     return requestClose();
   }
+  const anyDialog = $$("dialog").some((d) => d.open);
+  if (e.key === "Escape" && !anyDialog && !$("#chef").hidden) {
+    e.preventDefault();
+    return closeChef();
+  }
   const typing = e.target.closest?.("input, textarea, select, [contenteditable]");
-  if (typing || dialog.open || $("#panel").hidden || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (typing || anyDialog || $("#panel").hidden || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "n") {
     e.preventDefault();
     openDish(null);
@@ -1126,18 +1947,38 @@ document.addEventListener("keydown", (e) => {
       e.preventDefault();
       search.focus();
     }
+  } else if (e.key === "c") {
+    e.preventDefault();
+    toggleChef();
+  } else if (e.key === "?") {
+    e.preventDefault();
+    openShortcuts();
+  } else if (/^[1-5]$/.test(e.key)) {
+    e.preventDefault();
+    switchTab(TABS[Number(e.key) - 1]);
   }
 });
 
+// A file dropped outside a drop zone shouldn't navigate away from the admin
+["dragover", "drop"].forEach((type) =>
+  window.addEventListener(type, (e) => {
+    if (hasFiles(e) && !e.defaultPrevented) e.preventDefault();
+  }),
+);
+
 // ---- Boot ----
+applyTheme(themeMode());
 (async () => {
   try {
     config = await api("/api/config");
   } catch (err) {
     return toast(err.message, { type: "error", ms: 20000 });
   }
+  const catOptions = config.categories.map((c) => `<option value="${esc(c.slug)}">${c.emoji} ${esc(c.en)}</option>`).join("");
   $("#category-select").innerHTML = config.categories.map((c) => `<option value="${esc(c.slug)}">${c.emoji} ${esc(c.en)} / ${esc(c.ar)}</option>`).join("");
-  $("#dish-cat").innerHTML += config.categories.map((c) => `<option value="${esc(c.slug)}">${c.emoji} ${esc(c.en)}</option>`).join("");
+  $("#dish-cat").innerHTML += catOptions;
+  $("#bulk-cat").innerHTML += catOptions;
+  $("#bulk-badge").innerHTML += Object.entries(config.badges).map(([b, label]) => `<option value="${esc(b)}">${esc(label)}</option>`).join("");
   $("#badge-boxes").innerHTML = Object.entries(config.badges).map(([b, label]) => `<label class="inline"><input type="checkbox" name="badges" value="${esc(b)}"> ${esc(label)}</label>`).join("");
   try {
     await showPanel();

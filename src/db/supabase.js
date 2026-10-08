@@ -75,6 +75,22 @@ function createSupabaseStore({ url, secretKey }) {
       if (!isUuid(id)) return false;
       return unwrap(await sb.from("orders").delete().eq("id", id).select("id")).length > 0;
     },
+    // ---- arcade: players (nickname + hashed PIN) and scores ----
+    async getPlayer(nicknameKey) {
+      return unwrap(await sb.from("game_players").select("*").eq("nickname_key", nicknameKey).maybeSingle());
+    },
+    async createPlayer(fields) {
+      return unwrap(await sb.from("game_players").insert(fields).select().single());
+    },
+    async addScore(fields) {
+      return unwrap(await sb.from("game_scores").insert(fields).select().single());
+    },
+    async topScores(game, limit = 300) {
+      const rows = unwrap(
+        await sb.from("game_scores").select("*, player:game_players(nickname)").eq("game", game).order("score", { ascending: false }).order("created_at").limit(limit),
+      );
+      return rows.map(({ player, ...s }) => ({ ...s, nickname: player?.nickname || "?" }));
+    },
     async getSetting(key) {
       const row = unwrap(await sb.from("settings").select("value").eq("key", key).maybeSingle());
       return row ? row.value : null;

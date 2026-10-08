@@ -15,6 +15,8 @@
   --shadow: 6px 6px 0 var(--ink);
   --shadow-sm: 3px 3px 0 var(--ink);
   --radius: 14px;
+  /* spacing scale (4px base): use these for gaps / paddings so sections line up */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
   --font-display: "Lalezar", "Baloo Bhaijaan 2", system-ui, sans-serif;
   --font-ui: "Baloo Bhaijaan 2", "Cairo", system-ui, sans-serif;
   --font-body: "Cairo", system-ui, sans-serif;
@@ -79,7 +81,7 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 400; line-height: 1.
 
 /* ---------- Header ---------- */
 .header { position: sticky; top: 0; z-index: 30; background: var(--cream); border-bottom: var(--border); }
-.header__row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.header__row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; } /* same 16px gutter as .wrap so the header lines up with the page */
 .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
 .logo__name { font-family: var(--font-display); font-size: 1.6rem; line-height: 1; }
 .logo__name small { display: block; font-family: var(--font-ui); font-size: .75rem; color: var(--muted); }
@@ -161,9 +163,10 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 400; line-height: 1.
 .empty { padding: 30px; text-align: center; background: var(--paper); border: var(--border); border-radius: var(--radius); grid-column: 1 / -1; }
 
 /* ---------- Leaderboard ---------- */
-.section { padding: 34px 0 6px; scroll-margin-top: 150px; }
-.section__head { display: flex; align-items: baseline; gap: 6px 12px; flex-wrap: wrap; }
-.section__head h2 { font-size: 2rem; }
+.section { padding: var(--sp-7) 0 0; scroll-margin-top: 90px; }
+/* One header style for every home section: big title + muted twist, heavy rule underneath */
+.section__head { display: flex; align-items: baseline; gap: var(--sp-1) var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); padding-bottom: var(--sp-2); border-bottom: var(--border); }
+.section__head h2 { font-size: clamp(1.6rem, 4.2vw, 2.2rem); margin: 0; }
 .section__twist { font-family: var(--font-ui); color: var(--muted); }
 .board { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
 .board__panel { background: var(--paper); border: var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
@@ -202,7 +205,7 @@ dialog.modal::backdrop { background: rgba(17, 17, 17, .6); }
 .dish-info .badges { position: static; max-width: none; margin-top: 4px; }
 .dish-info .card__job { margin: 6px 0; }
 .quote { position: relative; margin: 14px 0 10px; padding: 10px 14px; background: var(--paper); border: 2px solid var(--ink); border-radius: 14px 14px 14px 2px; font-family: var(--font-ui); font-weight: 700; }
-.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: var(--sp-2); margin: var(--sp-3) 0; }
 .stat { padding: 8px 6px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); text-align: center; font-family: var(--font-ui); }
 .stat b { display: block; font-size: 1.1rem; line-height: 1.2; }
 .stat small { color: var(--muted); font-size: .72rem; }
@@ -224,6 +227,9 @@ dialog.modal::backdrop { background: rgba(17, 17, 17, .6); }
 .stepper { display: inline-flex; align-items: center; border: var(--border); border-radius: 999px; background: var(--paper); overflow: hidden; flex: none; }
 .stepper button { width: 44px; height: 44px; border: 0; background: transparent; font-size: 1.3rem; cursor: pointer; }
 .stepper output { min-width: 2ch; text-align: center; font-weight: 700; }
+.stepper .qty-in { width: 3.2ch; min-width: 0; height: 44px; padding: 0; border: 0; background: transparent; text-align: center; font-weight: 700; font-family: var(--font-ui); -moz-appearance: textfield; appearance: textfield; }
+.stepper .qty-in::-webkit-outer-spin-button, .stepper .qty-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.line .stepper .qty-in { height: 36px; }
 .runaway { position: relative; transition: transform .25s cubic-bezier(.3, 1.6, .5, 1); }
 
 /* ---------- Reviews ---------- */
@@ -354,7 +360,8 @@ input[type="range"] { width: 100%; accent-color: var(--hot); min-height: 44px; }
 /* ---------- 404 game ---------- */
 .game { width: 100%; max-width: 480px; aspect-ratio: 3 / 4; border: var(--border); border-radius: var(--radius); background: #bde7ff; display: block; margin: 0 auto; touch-action: manipulation; }
 
-footer { padding: 30px 0 90px; text-align: center; color: var(--muted); font-size: .85rem; display: grid; gap: 10px; justify-items: center; }
+footer { padding: var(--sp-6) 0 90px; text-align: center; color: var(--muted); font-size: .85rem; display: grid; gap: 10px; justify-items: center; }
+.site-footer { margin-top: var(--sp-7); border-top: var(--border); }
 
 /* ---------- Small phones: two cards per row like real delivery apps ---------- */
 @media (max-width: 520px) {
@@ -404,3 +411,23 @@ button.pill:hover { transform: rotate(-2deg) scale(1.05); background: var(--must
 .soundboard .btn { white-space: normal; min-height: 52px; font-size: .9rem; }
 .soundboard .btn:nth-child(4n+1) { background: var(--mustard); } .soundboard .btn:nth-child(4n+2) { background: var(--pink); }
 .soundboard .btn:nth-child(4n+3) { background: var(--slime); } .soundboard .btn:nth-child(4n) { background: var(--sky); }
+
+/* ---------- 🕹️ Arcade entry (home + checkout headers) ---------- */
+.arcade-link { min-height: 32px; background: var(--mustard); font-weight: 700; text-decoration: none; color: var(--ink); box-shadow: 2px 2px 0 var(--ink); transition: transform .1s; }
+.arcade-link:hover { transform: rotate(-2deg) scale(1.05); background: var(--pink); }
+@media (max-width: 760px) {
+  .arcade-link { width: 40px; height: 40px; padding: 0; justify-content: center; font-size: 1.15rem; }
+  .arcade-link__txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+@media (max-width: 760px) {
+  /* keep the 🕹️ icon on the same row as the other header pills */
+  .header__meta { flex-wrap: nowrap; gap: 6px; }
+  .logo { min-width: 0; }
+  .logo__name { overflow-wrap: anywhere; }
+}
+@media (max-width: 420px) {
+  .header__row { gap: 8px; }
+  .logo { gap: 8px; }
+  .logo__name { font-size: 1.25rem; }
+  .arcade-link { width: 36px; height: 36px; }
+}

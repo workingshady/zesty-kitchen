@@ -1,6 +1,6 @@
 import {
   $, $$, api, esc, egp, toast, play, say, calm, isTouch, pick, getConfig, getDishes, initCommon, chefHtml, toggleUnc, fitImg, CLIPS, soundOn,
-  getCart, saveCart, addToCart, cartCount, linePrice, totalsHtml, avatarHtml,
+  getCart, saveCart, addToCart, cartCount, linePrice, totalsHtml, avatarHtml, getStats,
 } from "./common.js";
 import { initHome, dishTools, replyToReview } from "./home.js";
 
@@ -9,15 +9,16 @@ const PLATE_EMOJI = { mandi: "🍚", grills: "🍢", shawarma: "🌯", seafood: 
 
 let config;
 let dishes = [];
-let board = { top: [], worst: null, total_orders: 0 };
+let stats = { ranking: [], dishes: {}, rating: {}, recent_orders: [], total_orders: 0, orders_today: 0 };
+const MAX_QTY = 99; // per line, same as the server (src/orders.js)
+const clampQty = (n) => Math.min(MAX_QTY, Math.max(1, Math.round(Number(n)) || 1));
 const state = { cat: "all", q: "", sort: "default" };
 
 const hash = (s) => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 const aura = (chili) => Math.round(chili * 200 - 67);
 const catOf = (slug) => config.categories.find((c) => c.slug === slug);
 const badgeLabel = (b) => config.badges?.[b] || b;
-const orderCount = (id) => board.top.find((t) => t.id === id)?.orders || 0;
-const fakeKcal = (d) => d.calories || 900 + (hash(d.id) % 4100);
+const orderCount = (id) => stats.dishes[id]?.orders_qty_all_time || 0; // real, all time
 const photoOrEmoji = (d, alt = "") =>
   d.photo_url ? fitImg(d.photo_url, alt) : `<span class="emoji-plate" aria-hidden="true">${PLATE_EMOJI[d.category] || "🍽️"}</span>`;
 
@@ -64,7 +65,7 @@ function cardHtml(d) {
       <span class="badges">${badges.join("")}</span>
       <span class="card__media">
         ${photoOrEmoji(d)}
-        <span class="card__eye">👀 ${d.viewers}</span>
+        ${orderCount(d.id) ? `<span class="card__eye" title="Real orders, all time">🧾 ${orderCount(d.id)}× ordered</span>` : ""}
         ${c ? `<span class="card__cat">${c.emoji} ${esc(c.ar)}</span>` : ""}
       </span>
       <span class="card__body">
@@ -72,7 +73,7 @@ function cardHtml(d) {
         ${d.name_en ? `<span class="card__name-en">${esc(d.name_en)}</span>` : ""}
         ${d.job_title ? `<span class="card__job" dir="auto">💼 ${esc(d.job_title)}</span>` : ""}
         <span class="card__desc" dir="auto">${esc(d.description)}</span>
-        <span class="card__meta"><span>${"🌶️".repeat(d.spice_level)}</span>${d.avg_chili ? `<span>⭐ ${d.avg_chili} (${d.review_count})</span>` : "<span>unrated rizz</span>"}</span>
+        <span class="card__meta"><span>${"🌶️".repeat(d.spice_level)}</span>${d.avg_chili ? `<span title="Average spice rating from real reviews">⭐ ${d.avg_chili} (${d.review_count})</span>` : "<span>no reviews yet</span>"}</span>
         <span class="card__foot">
           <span class="price"><small>يبدأ من / from</small>${egp(from)}</span>
           <span class="btn add-mini" aria-hidden="true">${soldOut ? "💀" : "+"}</span>
@@ -88,7 +89,10 @@ function decorate() {
 
 // ---------- Marquee + leaderboard ----------
 function renderHype() {
-  const lines = dishes.slice(0, 8).map((d) => `🚨 ${esc(d.name_ar)} اتطلب ${orderCount(d.id) || 67} مرة النهاردة 🚨`);
+  // Real counts only: today's orders first, then all-time; dishes with zero orders are skipped
+  const real = stats.ranking.filter((r) => r.orders_today > 0).slice(0, 6).map((r) => `🚨 ${esc(r.name_ar)} اتطلب ${r.orders_today} مرة النهاردة 🚨`);
+  if (real.length < 3) real.push(...stats.ranking.filter((r) => !r.orders_today && r.orders_qty_all_time > 0).slice(0, 6 - real.length).map((r) => `🧾 ${esc(r.name_ar)}: ${r.orders_qty_all_time}× لحد دلوقتي`));
+  const lines = real.length ? real : ["🦗 zero orders so far. be the first W"];
   lines.push("🍋 no cap ده أحسن مندي في الشركة", "💅 slay or get grilled", "6️⃣7️⃣ 6️⃣7️⃣ 6️⃣7️⃣", "⚠️ brainrot level: critical", "بيقولك الـ HR بيطلب سري 🤫", "🧃 رايق? no. hungry? yes.");
   const html = lines.map((l) => `<span>${l}</span>`).join("");
   $("#marquee").innerHTML = html + html; // doubled for a seamless loop
@@ -141,7 +145,8 @@ async function openDish(id) {
         ${d.catchphrase ? `<div class="quote" dir="auto">💬 "${esc(d.catchphrase)}"</div>` : ""}
         <div class="stats">
           <div class="stat"><b>${"🌶️".repeat(d.spice_level)}</b><small>Spice / حرارة</small></div>
-          <div class="stat"><b id="kcal">0</b><small>kcal of drama</small></div>
+          <div class="stat"><b id="dish-orders">${orderCount(d.id)}×</b><small>real orders</small></div>
+          ${d.calories ? `<div class="stat"><b id="kcal">0</b><small>kcal of drama</small></div>` : ""}
           <div class="stat"><b>${d.avg_chili ? `${d.avg_chili}⭐` : "—"}</b><small>${d.review_count} reviews</small></div>
         </div>
         ${d.warnings ? `<div class="warning" dir="auto">⚠️ <b>Contains / يحتوي على:</b> ${esc(d.warnings)}</div>` : ""}
@@ -165,10 +170,10 @@ async function openDish(id) {
     </section>`;
 
   $("#dish-foot").innerHTML = `
-    <div class="stepper"><button type="button" data-q="-1" aria-label="Less">−</button><output id="qty" aria-live="polite">1</output><button type="button" data-q="1" aria-label="More">+</button></div>
+    <div class="stepper"><button type="button" data-q="-1" aria-label="Less">−</button><input class="qty-in" id="qty" type="number" inputmode="numeric" min="1" max="${MAX_QTY}" value="1" aria-label="Quantity (1–${MAX_QTY})"><button type="button" data-q="1" aria-label="More">+</button></div>
     <button class="btn big red runaway" id="add-btn" type="button" ${soldOut ? "disabled" : ""}>${soldOut ? "Sold out 💀" : `<span class="t">Add to cart<span class="add-ar"> · ضيف</span></span>&nbsp;<span id="line-total"></span>`}</button>`;
 
-  countUp($("#kcal"), fakeKcal(d));
+  if (d.calories) countUp($("#kcal"), d.calories);
   const form = $("#add-form");
   let qty = 1;
   const update = () => {
@@ -181,11 +186,16 @@ async function openDish(id) {
   });
   $$("[data-q]", $("#dish-foot")).forEach((b) =>
     b.addEventListener("click", () => {
-      qty = Math.min(9, Math.max(1, qty + Number(b.dataset.q)));
-      $("#qty").textContent = qty;
+      qty = clampQty(qty + Number(b.dataset.q));
+      $("#qty").value = qty;
       update();
     }),
   );
+  $("#qty").addEventListener("change", (e) => {
+    qty = clampQty(e.target.value);
+    e.target.value = qty;
+    update();
+  });
   update();
   const addBtn = $("#add-btn");
   setupRunaway(addBtn);
@@ -194,6 +204,7 @@ async function openDish(id) {
     if (!calm() && isTouch() && dodges < 3) return dodge(addBtn);
     const size = form.size.value;
     const addons = $$("[name=addon]:checked", form).map((x) => x.value);
+    qty = clampQty($("#qty").value);
     addToCart({ dish_id: d.id, name_ar: d.name_ar, name_en: d.name_en, photo_url: d.photo_url, size, addons, qty, unit_price: linePrice(config, d.price, size, addons) });
     play("add");
     setTimeout(() => play("ashta"), 700);
@@ -335,7 +346,7 @@ function renderCart() {
         <div><strong dir="auto">${esc(l.name_ar)}</strong><br><small>${esc(config.sizes[l.size]?.ar || l.size)}${l.addons.length ? ` + ${l.addons.map((a) => esc(config.addons[a]?.ar || a)).join("، ")}` : ""}</small></div>
         <strong>${egp(l.unit_price * l.qty)}</strong>
         <div class="line__actions">
-          <div class="stepper"><button type="button" data-line="${i}" data-q="-1" aria-label="Less">−</button><output>${l.qty}</output><button type="button" data-line="${i}" data-q="1" aria-label="More">+</button></div>
+          <div class="stepper"><button type="button" data-line="${i}" data-q="-1" aria-label="Less">−</button><input class="qty-in" type="number" inputmode="numeric" min="1" max="${MAX_QTY}" value="${l.qty}" data-line-qty="${i}" aria-label="Quantity for ${esc(l.name_ar)}"><button type="button" data-line="${i}" data-q="1" aria-label="More">+</button></div>
           <button class="tiny-link" type="button" data-remove="${i}" data-scary>Remove</button>
         </div>
       </div>`,
@@ -351,7 +362,7 @@ function onCartClick(e) {
   const lineIdx = e.target.dataset.line;
   if (q && lineIdx !== undefined) {
     const line = cart[Number(lineIdx)];
-    line.qty = Math.min(9, Math.max(1, line.qty + Number(q)));
+    line.qty = clampQty(line.qty + Number(q));
     saveCart(cart);
     play("pop");
   }
@@ -401,7 +412,6 @@ function setupHeaderJokes() {
   const etas = ["⏱️ 25–35 years", "⏱️ 6–7 min", "⏱️ after the meeting", "⏱️ بعد الفطار", "⏱️ 3–5 business days", "⏱️ never 💀", "⏱️ when HR approves"];
   let desk = 0;
   let eta = 0;
-  let rating = 4.9;
   $("#pill-desk").addEventListener("click", (e) => {
     desk = (desk + 1) % desks.length;
     e.currentTarget.textContent = desks[desk];
@@ -414,18 +424,16 @@ function setupHeaderJokes() {
     toast("ETA recalculated by a very smart AI (a coin) 🪙");
     play(eta === 5 ? "sad" : "what");
   });
-  $("#pill-rating").addEventListener("click", (e) => {
-    rating = Math.round((rating - 0.3) * 10) / 10;
-    if (rating < 3.5) {
-      rating = 4.9;
-      toast("Rating restored with 2,300 totally real reviews 🤖");
-      play("cap");
-    } else {
-      toast(`You lowered our rating to ${rating}. Happy? 😢`);
-      play("faah");
-    }
-    e.currentTarget.textContent = `⭐ ${rating} (2.3k)`;
+  $("#pill-rating").addEventListener("click", () => {
+    const r = stats.rating || {};
+    toast(r.review_count ? `⭐ ${r.avg_chili}/5 is the real average spice rating from ${r.review_count} review${r.review_count === 1 ? "" : "s"}. Open a dish to add yours 🌶️` : "No reviews yet. Open a dish and be the first hater 😈");
+    play("pop");
   });
+}
+function renderRatingPill() {
+  const r = stats.rating || {};
+  const pill = $("#pill-rating");
+  if (pill) pill.textContent = r.review_count ? `⭐ ${r.avg_chili} (${r.review_count})` : "⭐ new";
 }
 
 // ---------- Boot ----------
@@ -433,16 +441,42 @@ async function boot() {
   $("#chef-slot").innerHTML = chefHtml;
   initCommon();
   try {
-    [config, dishes, board] = await Promise.all([getConfig(), getDishes(), api("/api/leaderboard")]);
+    [config, dishes, stats] = await Promise.all([getConfig(), getDishes(), getStats().then((s) => s || stats)]);
   } catch (err) {
     $("#menu").innerHTML = `<div class="empty">${esc(err.message)}</div>`;
     return;
   }
   renderTabs();
   renderGrid();
+  // /?dish=<id> opens that dish straight away (admin "Site" links, shared links)
+  const linked = new URLSearchParams(location.search).get("dish");
+  if (linked && dishes.some((d) => d.id === linked)) openDish(linked);
   renderHype();
   renderCart();
-  initHome({ config, dishes, board, openDish });
+  renderRatingPill();
+  initHome({
+    config,
+    dishes,
+    stats,
+    openDish,
+    onStats: (next) => {
+      stats = next;
+      renderGrid();
+      renderHype();
+      renderRatingPill();
+    },
+  });
+  // Hero search jumps into the menu with the same query
+  $("#hero-search")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = $("#hero-q").value;
+    $("#search").value = q;
+    state.q = q;
+    state.cat = "all";
+    renderTabs();
+    renderGrid();
+    $("#menu-section").scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "start" });
+  });
 
   $("#cat-tabs").addEventListener("click", (e) => {
     const b = e.target.closest(".cat");
@@ -463,6 +497,14 @@ async function boot() {
   });
   document.addEventListener("cart:change", renderCart);
   $("#cart-items").addEventListener("click", onCartClick);
+  $("#cart-items").addEventListener("change", (e) => {
+    const i = e.target.dataset.lineQty;
+    if (i === undefined) return;
+    const cart = getCart();
+    if (!cart[Number(i)]) return;
+    cart[Number(i)].qty = clampQty(e.target.value);
+    saveCart(cart);
+  });
   $("#open-cart").addEventListener("click", () => toggleCart(true));
   $("#cart-bar").addEventListener("click", () => toggleCart(true));
   $("#close-cart").addEventListener("click", () => toggleCart(false));

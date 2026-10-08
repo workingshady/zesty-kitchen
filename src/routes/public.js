@@ -3,7 +3,8 @@ const rateLimit = require("express-rate-limit");
 const menu = require("../menu");
 const { cleanText } = require("../filter");
 const v = require("../validate");
-const { createOrder } = require("../orders");
+const { createOrder, ORDER_RATE } = require("../orders");
+const { getStats } = require("../stats");
 
 const limiter = (windowMin, limit) =>
   rateLimit({
@@ -16,24 +17,14 @@ const limiter = (windowMin, limit) =>
 
 const avg = (nums) => (nums.length ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 10) / 10 : null);
 
+/** Top 5 + worst seller (shape used by the agent and GET /api/leaderboard), from the cached stats. */
 async function leaderboard(db) {
-  const since = await db.getSetting("leaderboard_since");
-  const [orders, dishes] = await Promise.all([db.listOrders(since), db.listDishes()]);
-  const counts = new Map();
-  for (const order of orders) {
-    for (const item of order.items) counts.set(item.dish_id, (counts.get(item.dish_id) || 0) + item.qty);
-  }
-  const visible = dishes.filter((d) => d.is_visible);
-  const ranked = visible
-    .map((d) => ({ id: d.id, name_ar: d.name_ar, name_en: d.name_en, photo_url: db.photoUrl(d.photo_path), orders: counts.get(d.id) || 0 }))
-    .sort((a, b) => b.orders - a.orders);
-  // Expired / sold-out dishes can't be ordered, so they never count as the worst seller
-  const orderable = new Set(visible.filter((d) => d.category !== "expired" && !d.badges.includes("sold_out")).map((d) => d.id));
-  const eligible = ranked.filter((d) => orderable.has(d.id));
+  const stats = await getStats(db);
+  const slim = (r) => ({ id: r.id, name_ar: r.name_ar, name_en: r.name_en, photo_url: r.photo_url, orders: r.orders_qty });
   return {
-    top: ranked.filter((d) => d.orders > 0).slice(0, 5),
-    worst: eligible.length > 1 ? eligible[eligible.length - 1] : null,
-    total_orders: orders.length,
+    top: stats.ranking.filter((r) => r.orders_qty > 0).slice(0, 5).map(slim),
+    worst: stats.worst ? slim(stats.worst) : null,
+    total_orders: stats.board_orders,
   };
 }
 
@@ -55,7 +46,6 @@ function publicDish(db, dish, reviews) {
     photo_url: db.photoUrl(dish.photo_path),
     review_count: mine.length,
     avg_chili: avg(mine.map((r) => r.chili_rating)),
-    viewers: 3 + Math.floor(Math.random() * 25),
   };
 }
 
@@ -68,12 +58,13 @@ function publicRouter(db) {
   });
 
   router.get("/dishes", async (req, res) => {
-    const [dishes, reviews, board] = await Promise.all([db.listDishes(), db.listReviews(), leaderboard(db)]);
-    const topId = board.top[0]?.id;
+    const [dishes, reviews, stats] = await Promise.all([db.listDishes(), db.listReviews(), getStats(db)]);
+    const top = stats.ranking[0];
+    const topId = top?.orders_qty > 0 ? top.id : null;
     res.json(
       dishes
         .filter((d) => d.is_visible)
-        .map((d) => ({ ...publicDish(db, d, reviews), most_ordered: d.id === topId })),
+        .map((d) => ({ ...publicDish(db, d, reviews), orders_qty: stats.dishes[d.id]?.orders_qty_all_time || 0, most_ordered: d.id === topId })),
     );
   });
 
@@ -105,12 +96,18 @@ function publicRouter(db) {
     res.json({ reactions: review.reactions });
   });
 
-  router.post("/orders", limiter(10, 5), async (req, res) => {
+  router.post("/orders", limiter(ORDER_RATE.windowMin, ORDER_RATE.limit), async (req, res) => {
     res.status(201).json(await createOrder(db, req.body || {}));
   });
 
   router.get("/leaderboard", async (req, res) => {
     res.json(await leaderboard(db));
+  });
+
+  // Real aggregates only (no notes / phones / full names). Cached ~30s, refreshed on new orders.
+  router.get("/stats", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json(await getStats(db));
   });
 
   return router;

@@ -1,13 +1,14 @@
 // Home page features: hero champion, leaderboard (podium / rows / tier list), worst seller,
 // coworker of the day, would-you-rather duel, hunger streak, spin wheel, and the dish-photo
-// toys (aura scan, sticker slap, roast). Everything "random" is seeded per dish per day so it
-// stays consistent between reloads.
-import { $, $$, esc, egp, toast, play, calm, pick, store, sleep, addToCart, linePrice, avatarHtml, fitImg, askAi } from "./common.js";
+// toys (aura scan, sticker slap, roast). Every COUNT shown here (orders, ranks, ▲▼, streaks,
+// days since last order) comes from GET /api/stats. Seeded randomness is only used for the
+// obvious jokes (horoscope, aura scan, coworker-of-the-day vibes) so they stay stable all day.
+import { $, $$, esc, egp, toast, play, calm, pick, store, sleep, addToCart, linePrice, avatarHtml, fitImg, askAi, getStats } from "./common.js";
 
 // ---------- shared state (set by initHome) ----------
 let C = null; // config
 let D = []; // dishes
-let B = { top: [], worst: null, total_orders: 0 }; // leaderboard
+let S = { ranking: [], dishes: {}, worst: null, total_orders: 0, board_orders: 0, orders_today: 0, recent_orders: [], rating: {} }; // real stats
 let openDish = () => {};
 
 // ---------- seeded randomness ----------
@@ -25,7 +26,9 @@ const today = () => new Date().toLocaleDateString("en-CA");
 const seededPick = (r, list) => list[Math.floor(r() * list.length)];
 
 // ---------- data helpers ----------
-const ordersOf = (id) => B.top.find((t) => t.id === id)?.orders || 0;
+const rowOf = (id) => S.ranking.find((r) => r.id === id);
+const ordersOf = (id) => rowOf(id)?.orders_qty || 0;
+const allTimeOf = (id) => S.dishes[id]?.orders_qty_all_time || 0;
 const dishById = (id) => D.find((d) => d.id === id);
 const isOrderable = (d) => !d.badges.includes("sold_out") && d.category !== "expired";
 const orderable = () => D.filter(isOrderable);
@@ -35,49 +38,41 @@ const PLATE = { mandi: "🍚", grills: "🍢", shawarma: "🌯", seafood: "🦐"
 const emojiOf = (d) => PLATE[d?.category] || "🍽️";
 const face = (d, cls = "avatar") => (d?.photo_url ? `<img class="${cls}" src="${esc(d.photo_url)}" alt="" loading="lazy" decoding="async">` : `<span class="${cls}" aria-hidden="true">${emojiOf(dishById(d?.id) || d)}</span>`);
 
-/** All-time aura: real orders + reviews, plus a tiny daily wobble so it feels alive. */
+/** Aura = a joke unit, but computed only from real data: orders + reviews + avg spice rating. */
 function auraAllTime(d) {
   const full = dishById(d.id) || d;
-  const wobble = Math.round((rng(`aw${d.id}${today()}`)() - 0.5) * 60);
-  return ordersOf(d.id) * 167 + (full.review_count || 0) * 20 + Math.round((full.avg_chili || 0) * 50) - 67 + wobble;
+  const r = S.dishes[d.id] || {};
+  return ordersOf(d.id) * 167 + (r.review_count ?? full.review_count ?? 0) * 20 + Math.round((r.avg_chili ?? full.avg_chili ?? 0) * 50) - 67;
 }
-/** "Vibes today": pure daily horoscope energy, clearly labelled as fake. */
-function auraVibes(d) {
-  const r = rng(`vibes${d.id}${today()}`);
-  const v = r();
-  if (v > 0.93) return 6700;
-  if (v < 0.05) return -1000;
-  return Math.round(v * 9000 - 1500);
-}
-/** Deterministic daily rank movement: +n up, -n down, 0 same. */
-function movement(id, rank) {
-  const r = rng(`mv${id}${today()}`);
-  const v = r();
-  const n = 1 + Math.floor(r() * 3);
-  if (rank === 1) return v < 0.6 ? 0 : n;
-  return v < 0.4 ? n : v < 0.7 ? -n : 0;
-}
-function caption(rank, mv, score, mode) {
-  if (rank === 1) return "W rizz 👑";
-  if (mode === "all" && score === 0) return "NPC behavior 🤖";
-  if (mode === "vibes" && score < 0) return "aura debt 💸";
+/** Captions are jokes, but they're picked from REAL movement / streak / counts. */
+function caption(rank, mv, score, streak = 0) {
+  if (rank === 1 && score > 0) return "W rizz 👑";
+  if (score === 0) return "NPC behavior 🤖";
+  if (streak >= 3) return `${streak}-day streak 🔥`;
+  if (mv === "new") return "new arrival 🆕";
   if (mv >= 2) return "aura farming 🌾";
   if (mv === 1) return "cooking 🔥";
   if (mv <= -2) return "fell off 📉";
   if (mv === -1) return "lowkey slipping 😬";
-  return seededPick(rng(`cap${rank}${today()}`), ["mid but valid 😐", "side character 🎭", "holding it down 🫡", "locked in 🔒"]);
+  return ["mid but valid 😐", "side character 🎭", "holding it down 🫡", "locked in 🔒"][rank % 4];
 }
 const mvHtml = (mv) =>
-  mv > 0 ? `<span class="mv up" title="Up ${mv} since yesterday">▲${mv}</span>` : mv < 0 ? `<span class="mv down" title="Down ${-mv} since yesterday">▼${-mv}</span>` : `<span class="mv same" title="Same as yesterday">–</span>`;
+  mv === "new"
+    ? `<span class="mv new" title="First orders this week">🆕</span>`
+    : mv > 0
+      ? `<span class="mv up" title="Up ${mv} vs. a week ago">▲${mv}</span>`
+      : mv < 0
+        ? `<span class="mv down" title="Down ${-mv} vs. a week ago">▼${-mv}</span>`
+        : `<span class="mv same" title="Same rank as a week ago">–</span>`;
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 // =====================================================================
 // Hero: "Most ordered right now"
 // =====================================================================
-let liveTimer = 0;
+const topList = () => S.ranking.filter((r) => r.orders_qty > 0).map((r) => ({ ...dishById(r.id), ...r, orders: r.orders_qty }));
 function renderHero() {
   const box = $("#hero-top");
-  const top = B.top[0] ? { ...B.top[0], ...dishById(B.top[0].id) } : null;
-  clearInterval(liveTimer);
+  const top = topList()[0] || null;
   if (!top) {
     const hopeful = orderable().filter((d) => d.photo_url).slice(0, 3);
     box.innerHTML = `
@@ -86,13 +81,12 @@ function renderHero() {
         <b>The throne is empty</b>
         <span>Zero orders so far. Your next order literally crowns someone. No pressure.</span>
         ${hopeful.length ? `<span class="champ-empty__hopefuls" aria-label="Contenders">${hopeful.map((d) => face(d, "avatar")).join("")}<small>contenders lining up 👀</small></span>` : ""}
-        <a class="btn red" href="#menu-top">Be the kingmaker 🍽️</a>
+        <a class="btn red" href="#menu-section">Be the kingmaker 🍽️</a>
       </div>`;
     return;
   }
-  const r = rng(`live${today()}`);
-  let todayCount = top.orders + 1 + Math.floor(r() * 9);
-  const mini = B.top.slice(0, 3);
+  const mini = topList().slice(0, 3);
+  const last = S.recent_orders?.[0];
   box.innerHTML = `
     <button class="champ" type="button" data-open="${esc(top.id)}" aria-label="Number one: ${esc(top.name_ar)}, ${top.orders} orders. Open dish">
       <span class="champ__frame">
@@ -103,22 +97,16 @@ function renderHero() {
       <span class="champ__name" dir="auto">${esc(top.name_ar)}</span>
       <span class="champ__sub">${top.name_en ? `<span dir="auto">${esc(top.name_en)}</span> · ` : ""}main character energy 🎬</span>
     </button>
-    <div class="champ__live"><span class="live-dot" aria-hidden="true"></span><span>🔥 <b id="live-count">+${todayCount}</b> today</span><small>${B.total_orders} orders all time</small></div>
+    <div class="champ__live"><span class="live-dot" aria-hidden="true"></span><span>🔥 <b id="live-count">${top.orders_today}</b> of them today</span><small>${plural(S.orders_today, "order")} today · ${plural(S.total_orders, "order")} all time</small></div>
+    ${last ? `<p class="champ__last">🧾 Last order: <b dir="auto">${esc(last.name)}</b> · ${esc(timeAgoShort(last.created_at))}</p>` : ""}
     ${mini.length > 1 ? `<ol class="mini-podium" aria-label="Top 3">${mini.map((d, i) => `<li class="mp${i + 1}"><button type="button" data-open="${esc(d.id)}" aria-label="#${i + 1} ${esc(d.name_ar)}, ${d.orders} orders"><span class="mp__medal" aria-hidden="true">${["🥇", "🥈", "🥉"][i]}</span>${face(d)}<small>${d.orders}×</small></button></li>`).join("")}</ol>` : ""}`;
-  if (!calm()) {
-    liveTimer = setInterval(() => {
-      if (document.hidden || Math.random() < 0.5) return;
-      const el = $("#live-count");
-      if (!el) return clearInterval(liveTimer);
-      el.textContent = `+${++todayCount}`;
-      el.classList.remove("bump");
-      void el.offsetWidth;
-      el.classList.add("bump");
-    }, 9000);
-  }
+}
+function timeAgoShort(iso) {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
 }
 
-// ---------- hunger streak (per browser) ----------
+// ---------- hunger streak (per browser, real: days in a row you opened the site) ----------
 function renderStreak() {
   const day = today();
   const yesterday = new Date(Date.now() - 864e5).toLocaleDateString("en-CA");
@@ -129,29 +117,34 @@ function renderStreak() {
     setTimeout(() => toast(`🔥 ${s.n}-day hunger streak. W. Don't break it.`), 2200);
   }
   store.set("zk_streak", s);
-  const hungry = 3 + Math.floor(rng(`hungry${day}${new Date().getHours()}`)() * 40);
+  const rating = S.rating?.review_count ? `⭐ ${S.rating.avg_chili} avg · ${plural(S.rating.review_count, "review")}` : "⭐ no reviews yet";
   $("#hero-chips").innerHTML = `
-    <span class="chip-pill streak" title="Days in a row you opened Zesty Kitchen">🔥 ${s.n}-day streak</span>
-    <span class="chip-pill"><span class="live-dot" aria-hidden="true"></span>${hungry} coworkers hungry rn</span>`;
+    <span class="chip-pill streak" title="Days in a row you opened Zesty Kitchen (this browser)">🔥 ${s.n}-day streak</span>
+    <span class="chip-pill" title="Real orders placed today (Cairo time)"><span class="live-dot" aria-hidden="true"></span>${plural(S.orders_today, "order")} today</span>
+    <span class="chip-pill" title="Average spice rating across all real reviews">${rating}</span>`;
 }
 
 // =====================================================================
 // Leaderboard
 // =====================================================================
-const lb = { tab: store.get("zk_lb_tab", "all"), mode: store.get("zk_lb_mode", "rank") };
+const lb = { tab: ["all", "week", "cat"].includes(store.get("zk_lb_tab", "all")) ? store.get("zk_lb_tab", "all") : "all", mode: store.get("zk_lb_mode", "rank") };
 const MEDALS = ["🥇", "🥈", "🥉"];
 
+/** Real ranking for a tab: "all" = since the last board reset (with ▲▼ vs. a week ago), "week" = last 7 days. */
 function rankedList(tab) {
-  if (tab === "vibes") return orderable().map((d) => ({ ...d, score: auraVibes(d), aura: auraVibes(d) })).sort((a, b) => b.score - a.score);
-  return B.top.map((t) => ({ ...dishById(t.id), ...t, score: t.orders, aura: auraAllTime(t) }));
+  const key = tab === "week" ? "orders_7d" : "orders_qty";
+  return S.ranking
+    .filter((r) => r[key] > 0)
+    .sort((a, b) => b[key] - a[key] || b.orders_qty_all_time - a.orders_qty_all_time)
+    .map((r, i) => ({ ...dishById(r.id), ...r, rank: i + 1, score: r[key], orders: r[key], mv: tab === "all" ? r.movement : null, aura: auraAllTime(r) }));
 }
 
-function podiumHtml(list, tab) {
+function podiumHtml(list) {
   return `<ol class="podium" aria-label="Top 3">${list
     .slice(0, 3)
     .map((d, i) => {
       const rank = i + 1;
-      const scoreTxt = tab === "vibes" ? `${fmtAura(d.aura)} aura` : `${d.orders}× · ${fmtAura(d.aura)} aura`;
+      const scoreTxt = `${d.orders}× · ${fmtAura(d.aura)} aura`;
       return `<li class="podium__slot p${rank}">
         <button type="button" data-open="${esc(d.id)}" aria-label="#${rank} ${esc(d.name_ar)}, ${scoreTxt}">
           <span class="podium__who">
@@ -159,7 +152,7 @@ function podiumHtml(list, tab) {
             ${face(d, "avatar podium__face")}
             <b class="podium__name" dir="auto">${esc(d.name_ar)}</b>
             <small class="podium__score">${scoreTxt}</small>
-            <span class="podium__cap">${caption(rank, movement(d.id, rank), d.score, tab)}</span>
+            <span class="podium__cap">${typeof d.mv === "number" ? `${mvHtml(d.mv)} ` : ""}${caption(rank, d.mv, d.score, d.streak_days)}</span>
           </span>
           <span class="podium__block"><span aria-hidden="true">${MEDALS[i]}</span><b>${rank}</b></span>
         </button></li>`;
@@ -169,17 +162,16 @@ function podiumHtml(list, tab) {
 
 function rowsHtml(list, tab) {
   if (list.length <= 3) return "";
-  const max = Math.max(1, ...list.map((d) => Math.abs(d.score)));
+  const max = Math.max(1, ...list.map((d) => d.score));
   return `<ol class="lb-rows" start="4">${list
-    .slice(3, 10)
-    .map((d, j) => {
-      const rank = j + 4;
-      const mv = movement(d.id, rank);
-      const pct = Math.max(4, (Math.max(0, d.score) / max) * 100);
+    .slice(3)
+    .map((d) => {
+      const pct = Math.max(4, (d.score / max) * 100);
+      const extra = [d.streak_days >= 2 ? `🔥 ${d.streak_days}d streak` : "", d.avg_chili ? `⭐ ${d.avg_chili}` : ""].filter(Boolean).join(" · ");
       return `<li><button class="lb-row" type="button" data-open="${esc(d.id)}">
-        <span class="lb-rank">${rank}</span>${mvHtml(mv)}${face(d)}
-        <span class="lb-name"><b dir="auto">${esc(d.name_ar)}</b><small>${caption(rank, mv, d.score, tab)}</small></span>
-        <span class="lb-score">${tab === "vibes" ? "" : `<b>${d.orders}×</b>`}<small class="aura">${fmtAura(d.aura)}</small></span>
+        <span class="lb-rank">${d.rank}</span>${tab === "all" ? mvHtml(d.mv) : `<span class="mv same" aria-hidden="true"></span>`}${face(d)}
+        <span class="lb-name"><b dir="auto">${esc(d.name_ar)}</b><small>${caption(d.rank, d.mv, d.score, d.streak_days)}${extra ? ` · ${extra}` : ""}</small></span>
+        <span class="lb-score"><b>${d.orders}×</b><small class="aura">${fmtAura(d.aura)}</small></span>
         <span class="bar" aria-hidden="true"><span style="width:${pct}%"></span></span>
       </button></li>`;
     })
@@ -189,29 +181,22 @@ function rowsHtml(list, tab) {
 function tiersHtml(tab) {
   const ranked = rankedList(tab);
   const tiers = { S: [], A: [], B: [], C: [], D: [], F: [] };
-  if (tab === "vibes") {
-    ranked.forEach((d, i) => {
-      const p = i / Math.max(1, ranked.length);
-      tiers[i === 0 ? "S" : p < 0.2 ? "A" : p < 0.45 ? "B" : p < 0.7 ? "C" : p < 0.9 ? "D" : "F"].push(d);
-    });
-  } else {
-    const max = ranked[0]?.orders || 0;
-    const ranked_ids = new Set(ranked.map((d) => d.id));
-    ranked.forEach((d, i) => tiers[i === 0 ? "S" : d.orders >= max * 0.6 ? "A" : d.orders >= max * 0.3 ? "B" : "C"].push(d));
-    for (const d of D) {
-      if (ranked_ids.has(d.id)) continue;
-      if (!isOrderable(d) || d.id === B.worst?.id) tiers.F.push(d);
-      else tiers.D.push(d);
-    }
+  const max = ranked[0]?.score || 0;
+  const rankedIds = new Set(ranked.map((d) => d.id));
+  ranked.forEach((d, i) => tiers[i === 0 ? "S" : d.score >= max * 0.6 ? "A" : d.score >= max * 0.3 ? "B" : "C"].push(d));
+  for (const d of D) {
+    if (rankedIds.has(d.id)) continue;
+    if (!isOrderable(d) || d.id === S.worst?.id) tiers.F.push(d);
+    else tiers.D.push(d);
   }
-  const caps = { S: "main character 🎬", A: "W rizz", B: "cooking 🔥", C: "mid but valid", D: "NPC behavior 🤖", F: "fell off / left the chat 💀" };
+  const caps = { S: "main character 🎬", A: "W rizz", B: "cooking 🔥", C: "mid but valid", D: "0 orders · NPC 🤖", F: "fell off / left the chat 💀" };
   return `<div class="tiers" role="list" aria-label="Tier list">${Object.entries(tiers)
     .map(
       ([t, list]) => `<div class="tier" role="listitem">
       <span class="tier__label t-${t}"><b>${t}</b><small>${caps[t]}</small></span>
       <span class="tier__items">${
         list.length
-          ? list.map((d) => `<button type="button" class="tier__chip" data-open="${esc(d.id)}" title="${esc(d.name_ar)}${d.name_en ? ` / ${esc(d.name_en)}` : ""}" aria-label="${esc(d.name_ar)}, tier ${t}">${face(d)}<span dir="auto">${esc(d.name_ar)}</span></button>`).join("")
+          ? list.map((d) => `<button type="button" class="tier__chip" data-open="${esc(d.id)}" title="${esc(d.name_ar)}${d.name_en ? ` / ${esc(d.name_en)}` : ""} · ${d.score || 0} orders" aria-label="${esc(d.name_ar)}, tier ${t}">${face(d)}<span dir="auto">${esc(d.name_ar)}</span></button>`).join("")
           : `<span class="tier__none">nobody (yet) 🦗</span>`
       }</span></div>`,
     )
@@ -224,18 +209,19 @@ function categoryHtml() {
       const list = orderable().filter((d) => d.category === c.slug);
       if (!list.length) return null;
       const lead = [...list].sort((a, b) => ordersOf(b.id) - ordersOf(a.id))[0];
-      return { c, lead, n: ordersOf(lead.id) };
+      const total = list.reduce((s, d) => s + ordersOf(d.id), 0);
+      return { c, lead, n: ordersOf(lead.id), total };
     })
     .filter(Boolean)
-    .sort((a, b) => b.n - a.n);
+    .sort((a, b) => b.total - a.total || b.n - a.n);
   if (!rows.length) return `<p class="lb-empty">No categories cooking yet 🦗</p>`;
   return `<div class="cat-champs">${rows
     .map(
-      ({ c, lead, n }) => `<button type="button" class="cat-champ" data-open="${esc(lead.id)}">
+      ({ c, lead, n, total }) => `<button type="button" class="cat-champ" data-open="${esc(lead.id)}">
       <span class="cat-champ__cat">${c.emoji} <span dir="auto">${esc(c.ar)}</span></span>
       ${face(lead)}
       <b dir="auto">${esc(lead.name_ar)}</b>
-      <small>${n ? `👑 ${n}× ordered` : "no orders yet 🦗"}</small></button>`,
+      <small>${n ? `👑 ${n}× · category ${total}×` : "no orders yet 🦗"}</small></button>`,
     )
     .join("")}</div>`;
 }
@@ -248,10 +234,12 @@ function renderLeaderboard() {
   });
   $$("#lb-mode button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode === lb.mode));
   $("#lb-mode").hidden = lb.tab === "cat";
+  const since = S.leaderboard_since ? new Date(S.leaderboard_since).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : null;
+  const week = S.ranking.reduce((n, r) => n + r.orders_7d, 0);
   const stats = `<div class="board__stats">
-    <span class="pill">🧾 ${B.total_orders || 0} orders total</span>
+    <span class="pill">🧾 ${lb.tab === "week" ? `${week} dishes ordered in 7 days` : plural(S.board_orders || 0, "order") + (since ? ` since ${since}` : " total")}</span>
+    <span class="pill">📅 ${plural(S.orders_today || 0, "order")} today</span>
     <span class="pill">🍽️ ${D.length} coworkers</span>
-    ${lb.tab === "vibes" ? `<span class="pill warn">🔮 vibes-based. not real data. resets daily</span>` : `<span class="pill">📅 since the last reset</span>`}
   </div>`;
   let body;
   if (lb.tab === "cat") body = categoryHtml();
@@ -259,17 +247,16 @@ function renderLeaderboard() {
   else {
     const list = rankedList(lb.tab);
     if (!list.length) {
-      body = `<div class="board__empty"><span class="board__empty-podium" aria-hidden="true"><i></i><i></i><i></i></span><b>No orders yet. The podium is empty 👑</b><span>Be the first W. Order someone and put them on the board.</span><a class="btn red" href="#menu-top">Start ordering 🍽️</a></div>`;
+      body = `<div class="board__empty"><span class="board__empty-podium" aria-hidden="true"><i></i><i></i><i></i></span><b>${lb.tab === "week" ? "No orders in the last 7 days 👑" : "No orders yet. The podium is empty 👑"}</b><span>Be the first W. Order someone and put them on the board.</span><a class="btn red" href="#menu-section">Start ordering 🍽️</a></div>`;
     } else {
       const rankedIds = new Set(list.map((d) => d.id));
-      const npcs = lb.tab === "all" ? orderable().filter((d) => !rankedIds.has(d.id)) : [];
+      const npcs = orderable().filter((d) => !rankedIds.has(d.id));
       body =
-        podiumHtml(list, lb.tab) +
+        podiumHtml(list) +
         rowsHtml(list, lb.tab) +
         (npcs.length
-          ? `<div class="npc-zone"><b>🤖 NPC zone</b><small>no orders yet (or not top 5). one order = main character arc.</small><span class="npc-zone__faces">${npcs
-              .slice(0, 14)
-              .map((d) => `<button type="button" data-open="${esc(d.id)}" title="${esc(d.name_ar)}" aria-label="${esc(d.name_ar)}">${face(d)}</button>`)
+          ? `<div class="npc-zone"><b>🤖 NPC zone · ${npcs.length}</b><small>0 orders ${lb.tab === "week" ? "this week" : "so far"}. one order = main character arc.</small><span class="npc-zone__faces">${npcs
+              .map((d) => `<button type="button" data-open="${esc(d.id)}" title="${esc(d.name_ar)}" aria-label="${esc(d.name_ar)}, no orders">${face(d)}</button>`)
               .join("")}</span></div>`
           : "");
     }
@@ -317,13 +304,14 @@ const ADOPT_LINES = [
   "🥺 They saw you click that. They're crying in the pantry (happy tears).",
 ];
 function renderWorst() {
-  const w = B.worst ? { ...dishById(B.worst.id), ...B.worst } : null;
+  const w = S.worst ? { ...dishById(S.worst.id), ...S.worst, orders: S.worst.orders_qty } : null;
   const box = $("#board-worst");
   if (!w) {
     box.innerHTML = `<h3>💀 Worst seller / الأقل طلبًا</h3><p class="worst__none">Nobody's losing yet. Give it time 😈</p>`;
     return;
   }
-  const days = w.orders === 0 ? "∞" : String(1 + (hash(`days${w.id}${today()}`) % 13));
+  // Real: Cairo days since their last order (∞ = never ordered, ever)
+  const days = w.days_since_last_order ?? null;
   box.innerHTML = `
     <h3>💀 Worst seller / الأقل طلبًا</h3>
     <div class="worst-card">
@@ -334,8 +322,8 @@ function renderWorst() {
       <b class="worst__name" dir="auto">${esc(w.name_ar)}</b>
       ${w.name_en ? `<small class="worst__en" dir="auto">${esc(w.name_en)}</small>` : ""}
       <div class="worst__stats">
-        <span><b>${w.orders}</b> orders</span>
-        <span><b>${days}</b> days since last order</span>
+        <span><b>${w.orders}</b> orders${w.orders_qty_all_time !== w.orders ? ` <small>(${w.orders_qty_all_time} all time)</small>` : ""}</span>
+        <span><b>${days === null ? "∞" : days}</b> ${days === null ? "never ordered" : days === 1 ? "day since last order" : "days since last order"}</span>
         <span><b>${fmtAura(auraAllTime(w))}</b> aura</span>
       </div>
       <p>Nobody wants them. Be the main character in their redemption arc 🥺</p>
@@ -399,8 +387,8 @@ const HORO_A = [
 ];
 const HORO_B = ["رقم الحظ: 67.", "Lucky number: 404.", "اللون: رمادي زي يومك.", "Lucky snack: طعمية باردة.", "Avoid: the group chat.", "تجنب: أي حد بيقول \"بص بقى\".", "Energy: NPC with WiFi.", "الحظ: مش النهارده يا حبيبي."];
 const EXCUSE_SITUATIONS = [
-  ["late", "⏰ Late / متأخر"], ["task", "📋 Task not done / التاسك"], ["meeting", "📅 Missed meeting"],
-  ["reply", "📵 Didn't reply / مردتش"], ["leave", "🏃 Leaving early / همشي بدري"], ["camera", "📷 Camera off"],
+  ["late", "⏰ Late / متأخر"], ["task", "🙈 Forgot something / نسيت"], ["meeting", "📅 Missed the plan / فوّت الخروجة"],
+  ["reply", "📵 Didn't reply / مردتش"], ["leave", "🏃 Leaving early / همشي بدري"], ["camera", "😴 Overslept / نمت"],
 ];
 const EXCUSE_FALLBACK = {
   late: ["الميكروباص قرر ياخد طريق تاني يكتشف نفسه، وأنا كنت معاه في الرحلة الروحانية دي 🚐", "The elevator stopped between floors and I took it as a sign to rethink my life.", "صحيت بدري جدًا بس قعدت أفكر في قراري إني أصحى 🫠"],
@@ -408,7 +396,7 @@ const EXCUSE_FALLBACK = {
   meeting: ["كنت في الميتنج بس روحيًا، الجسم كان في البوفيه ☕", "Teams said 'reconnecting' for 40 minutes and honestly so was I.", "افتكرت الميتنج بكرة لأني عايش في المستقبل 🔮"],
   reply: ["كنت في مرحلة detox من الموبايل، من غير ما أقرر ده 📵", "I saw it, I felt it, I just didn't have the emotional bandwidth.", "الرسالة وصلتني بس أنا موصلتلهاش 🫠"],
   leave: ["عندي ميعاد مهم مع السرير ومش حابب أكسفه 🛏️", "My cat has a situation. I can't say more. It's personal.", "الكهربا هتقطع عندنا الساعة 6 وأنا لازم أكون هناك أستقبلها 🔌"],
-  camera: ["الكاميرا شغالة بس أنا اللي مش شغال 📷", "My camera is off out of respect for everyone in this call.", "الإضاءة عندي وحشة والنفسية أوحش 🫠"],
+  camera: ["المنبه رن، وأنا اعتبرته اقتراح مش أمر 😴", "I didn't oversleep. I just committed to the dream.", "صحيت لقيت اليوم خلص من غيري"],
 };
 const REPLY_FALLBACK = [
   (n) => `${n} here 👋 شكرًا على الرأي، اتسجل في ملف الحاقدين.`,
@@ -441,7 +429,7 @@ function renderHoroscope() {
   if (!box) return;
   const saved = store.get("zk_sign", "");
   box.innerHTML = `
-    <div class="quest__head"><h3>🔮 Office horoscope <small>برجك النهارده</small></h3><span class="quest__date">${esc(today())}</span></div>
+    <div class="quest__head"><h3>🔮 برجك النهارده / Your horoscope</h3><span class="quest__date">${esc(today())}</span></div>
     <p>Pick your sign. The stars read the group chat so you don't have to.</p>
     <div class="horo__signs" role="group" aria-label="Zodiac signs">${SIGNS.map(([k, g, ar, en]) => `<button type="button" class="horo__sign ${k === saved ? "on" : ""}" data-sign="${k}" aria-pressed="${k === saved}" title="${en}"><span aria-hidden="true">${g}</span><small>${ar}</small></button>`).join("")}</div>
     <p class="quest-out" id="horo-out" aria-live="polite"></p>`;
@@ -587,7 +575,7 @@ function renderPotd() {
           <div><dt>Today's vibe</dt><dd>${seededPick(r, VIBES)}</dd></div>
           <div><dt>Lucky snack</dt><dd dir="auto">${seededPick(r, SNACKS)}</dd></div>
           <div><dt>Avoid</dt><dd>${seededPick(r, AVOID)}</dd></div>
-          <div><dt>Aura forecast</dt><dd><span class="aura">${fmtAura(auraVibes(d))}</span></dd></div>
+          <div><dt>Real orders</dt><dd>${allTimeOf(d.id) ? `🧾 ${allTimeOf(d.id)}× all time` : "0 so far 🦗"}</dd></div>
         </dl>
         <div class="potd__actions"><button class="btn red" type="button" data-open="${esc(d.id)}">Order them 🍽️</button><button class="btn white" type="button" id="potd-reroll">🎲 Reroll</button></div>
       </div>
@@ -615,22 +603,21 @@ function renderDuel() {
   const key = `${today()}|${pair[0].id}|${pair[1].id}`;
   const votes = store.get("zk_duels", {});
   const mine = votes[key];
-  const r = rng(`dv${key}`);
-  const base = [12 + Math.floor(r() * 80), 12 + Math.floor(r() * 80)];
-  if (mine !== undefined) base[mine]++;
+  // The office "votes" with real orders: share of all-time orders between the two
+  const base = [allTimeOf(pair[0].id), allTimeOf(pair[1].id)];
   const total = base[0] + base[1];
-  const pct = base.map((n) => Math.round((n / total) * 100));
-  const won = pct[0] === pct[1] ? -1 : pct[0] > pct[1] ? 0 : 1;
+  const pct = total ? base.map((n) => Math.round((n / total) * 100)) : [50, 50];
+  const won = base[0] === base[1] ? -1 : base[0] > base[1] ? 0 : 1;
   const side = (d, i) => `
     <button class="duel__side ${mine === i ? "picked" : ""}" type="button" data-vote="${i}" ${mine !== undefined ? "disabled" : ""} aria-label="Eat ${esc(d.name_ar)}">
       <span class="duel__photo">${d.photo_url ? fitImg(d.photo_url) : `<span class="emoji-plate">${emojiOf(d)}</span>`}${mine !== undefined ? `<span class="stamp ${won === i ? "w" : "l"}">${won === i ? "W" : won === -1 ? "TIE" : "L"}</span>` : ""}</span>
       <b dir="auto">${esc(d.name_ar)}</b>
-      ${mine !== undefined ? `<span class="duel__bar"><span style="width:${pct[i]}%"></span><em>${pct[i]}%</em></span>` : `<small>${egp(linePrice(C, d.price, "half", []))}</small>`}
+      ${mine !== undefined ? `<span class="duel__bar"><span style="width:${pct[i]}%"></span><em>${base[i]}× · ${pct[i]}%</em></span>` : `<small>${egp(linePrice(C, d.price, "half", []))}</small>`}
     </button>`;
   box.innerHTML = `
     <div class="quest__head"><h3>⚔️ Would you rather eat? <small>تاكل مين؟</small></h3><span class="quest__date">duel #${duel.round + 1}</span></div>
     <div class="duel">${side(pair[0], 0)}<span class="duel__vs" aria-hidden="true">VS</span>${side(pair[1], 1)}</div>
-    <p class="duel__result" aria-live="polite">${mine !== undefined ? `${total} votes. ${won === mine ? "You're with the majority. NPC-certified 🤖" : won === -1 ? "Dead even. Chaos 🌪️" : "Minority opinion. Main character behavior 🎬"}` : "Pick one. No skipping. HR is watching 👀"}</p>
+    <p class="duel__result" aria-live="polite">${mine !== undefined ? (total ? `Real orders between them: ${total}. ${won === mine ? "The office agrees with you. NPC-certified 🤖" : won === -1 ? "Dead even. Chaos 🌪️" : "The office orders the other one. Main character behavior 🎬"}` : "Neither has a single real order yet. Go make history 🫡") : "Pick one, then see who the office actually orders. HR is watching 👀"}</p>
     <div class="duel__actions">${mine !== undefined ? `<button class="btn sky" type="button" data-next>⏭️ Next duel</button><button class="btn white" type="button" data-open="${esc(pair[mine].id)}">Order your pick 🍽️</button>` : ""}</div>`;
   box.onclick = (e) => {
     const v = e.target.closest("[data-vote]");
@@ -1254,9 +1241,53 @@ async function downloadPhoto(d, photo) {
 // =====================================================================
 // Boot
 // =====================================================================
+// ---------- 🎮 Fun zone tabs (one panel at a time instead of a long stack) ----------
+function setupFunZone() {
+  const tabs = $$("#fun-tabs [role=tab]");
+  if (!tabs.length) return;
+  const ids = tabs.map((t) => t.dataset.fun);
+  const select = (id, focus = false) => {
+    tabs.forEach((t) => {
+      const on = t.dataset.fun === id;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+      if (on && focus) t.focus();
+      // keep the active tab visible in the horizontal strip (without scrolling the page)
+      if (on) t.parentElement.scrollLeft += t.getBoundingClientRect().left - t.parentElement.getBoundingClientRect().left - 12;
+      const panel = document.getElementById(t.dataset.fun);
+      if (panel) panel.hidden = !on;
+    });
+    store.set("zk_fun_tab", id);
+  };
+  $("#fun-tabs").addEventListener("click", (e) => {
+    const t = e.target.closest("[role=tab]");
+    if (!t) return;
+    select(t.dataset.fun);
+    play("click");
+  });
+  $("#fun-tabs").addEventListener("keydown", (e) => {
+    const i = tabs.findIndex((t) => t.getAttribute("aria-selected") === "true");
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    select(ids[(next + ids.length) % ids.length], true);
+  });
+  const saved = store.get("zk_fun_tab", ids[0]);
+  select(ids.includes(saved) ? saved : ids[0]);
+}
+
+/** Re-render every stats-driven block (used on boot and when new real orders arrive). */
+function renderStats() {
+  renderHero();
+  renderStreak();
+  renderLeaderboard();
+  renderWorst();
+}
+
 export function initHome(ctx) {
   initTranslator();
-  ({ config: C, dishes: D, board: B, openDish } = ctx);
+  ({ config: C, dishes: D, openDish } = ctx);
+  if (ctx.stats) S = ctx.stats;
   renderHero();
   renderStreak();
   renderPotd();
@@ -1267,8 +1298,9 @@ export function initHome(ctx) {
   setupLeaderboard();
   renderWorst();
   setupWheel();
+  setupFunZone();
   // One delegated handler for every [data-open] in home sections
-  for (const id of ["#hero-top", "#leaderboard", "#side-quests"]) {
+  for (const id of ["#hero-top", "#leaderboard", "#fun-zone"]) {
     $(id)?.addEventListener("click", (e) => {
       const b = e.target.closest("[data-open]");
       if (!b) return;
@@ -1276,4 +1308,13 @@ export function initHome(ctx) {
       openDish(b.dataset.open);
     });
   }
+  // Live, but real: re-check the stats every minute and only re-render when an order landed
+  setInterval(async () => {
+    if (document.hidden || document.querySelector("dialog[open]")) return;
+    const next = await getStats({ fresh: true });
+    if (!next || (next.total_orders === S.total_orders && next.rating?.review_count === S.rating?.review_count && next.leaderboard_since === S.leaderboard_since)) return;
+    S = next;
+    renderStats();
+    ctx.onStats?.(S);
+  }, 60_000);
 }

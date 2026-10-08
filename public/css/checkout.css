@@ -236,3 +236,14 @@ html { overflow-x: clip; } /* common.js rage-click body shake must not create a 
 .judge .btn { justify-self: start; }
 .judge__out { margin: 0; padding: 0; font-family: var(--font-ui); font-weight: 700; }
 .judge__out:not(:empty) { padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow-sm); }
+
+/* ---------- Alignment fixes (real-data pass) ---------- */
+/* Fee label: name + ⓘ on one line, Arabic underneath (was 3 stacked grid rows) */
+.fee summary > span:first-child { display: block; min-width: 0; }
+.fee summary > span:first-child small { display: block; }
+.fee__q { vertical-align: middle; margin-inline-start: 2px; }
+/* Upsell cards keep a card size instead of stretching to half the panel */
+.upsell__row { grid-auto-columns: minmax(140px, 180px); justify-content: start; }
+.upsell__card { align-content: stretch; grid-template-rows: auto auto 1fr auto; }
+.upsell h3 small { font-family: var(--font-ui); font-size: .78rem; color: var(--muted); }
+.co-line .stepper .qty-in { height: 40px; }

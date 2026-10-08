@@ -2,6 +2,12 @@
 const menu = require("./menu");
 const { cleanText } = require("./filter");
 const v = require("./validate");
+const { invalidateStats } = require("./stats");
+
+// Order size limits, shared with the chatbot agent and mirrored in the frontend cart.
+const MAX_QTY = 99; // per cart line
+const MAX_LINES = 30; // lines per order
+const ORDER_RATE = { windowMin: 10, limit: 20 }; // per IP
 
 /** Validates one cart line against the DB and returns the priced order item (throws 400 on bad input). */
 async function priceItem(db, raw) {
@@ -11,14 +17,14 @@ async function priceItem(db, raw) {
   const addons = Array.isArray(raw.addons) ? [...new Set(raw.addons)] : [];
   addons.forEach((a) => v.oneOf(a, "add-on", Object.keys(menu.ADDONS)));
   if (addons.some((a) => !menu.ADDONS[a].available)) throw v.bad("بدون دراما is not available. It never was. 💀");
-  const qty = v.int(raw.qty, "quantity", 1, 9);
+  const qty = v.int(raw.qty, "quantity", 1, MAX_QTY);
   return { dish, item: { dish_id: dish.id, name_ar: dish.name_ar, name_en: dish.name_en, size, addons, qty, unit_price: menu.linePrice(dish.price, size, addons) } };
 }
 
 /** Creates a real order. Returns { order_number, items, subtotal, fees, total }. */
 async function createOrder(db, b = {}) {
-  if (!Array.isArray(b.items) || b.items.length < 1 || b.items.length > 10) {
-    throw v.bad("skill issue: cart must have 1–10 items");
+  if (!Array.isArray(b.items) || b.items.length < 1 || b.items.length > MAX_LINES) {
+    throw v.bad(`skill issue: cart must have 1–${MAX_LINES} items`);
   }
   const items = [];
   for (const raw of b.items) items.push((await priceItem(db, raw)).item);
@@ -33,7 +39,8 @@ async function createOrder(db, b = {}) {
     payment_method: v.oneOf(b.payment_method, "payment method", menu.PAYMENT_METHODS),
     note: b.note ? cleanText(v.text(b.note, "note", { min: 0, max: 200 })) : null,
   });
+  invalidateStats(db);
   return { order_number: order.order_number, items, subtotal, fees, total };
 }
 
-module.exports = { createOrder, priceItem };
+module.exports = { createOrder, priceItem, MAX_QTY, MAX_LINES, ORDER_RATE };

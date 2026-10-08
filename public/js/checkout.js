@@ -21,6 +21,8 @@ let dishes = [];
 const dishMap = new Map();
 let current = 0;
 let hrPrank = false;
+const MAX_QTY = 99; // per line, same as the server (src/orders.js)
+const clampQty = (n) => Math.min(MAX_QTY, Math.max(1, Math.round(Number(n)) || 1));
 
 // ---------- small helpers ----------
 const rand = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
@@ -32,7 +34,6 @@ const shuffle = (list) => {
   }
   return a;
 };
-const hash = (s) => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 const subtotalOf = (cart) => Math.round(cart.reduce((s, l) => s + l.unit_price * l.qty, 0) * 100) / 100;
 const catEmoji = (d) => config.categories?.find((c) => c.slug === d?.category)?.emoji || "🍽️";
 const photoOf = (l) => dishMap.get(l.dish_id)?.photo_url ?? l.photo_url ?? null;
@@ -183,8 +184,8 @@ const nextBtn = (label = "Continue →") => `<button class="btn red big" type="b
 // ---------- 1. Cart ----------
 let plusTrolled = false;
 let dramaTries = 0;
-const regretKcal = (cart) =>
-  cart.reduce((s, l) => s + l.qty * Math.round((config.sizes[l.size]?.mult || 1) * (380 + (hash(l.dish_id) % 420)) + l.addons.length * 67), 0);
+// Only uses calories the chef actually set on the dish (no invented numbers)
+const regretKcal = (cart) => cart.reduce((s, l) => s + l.qty * Math.round((config.sizes[l.size]?.mult || 1) * (dishMap.get(l.dish_id)?.calories || 0)), 0);
 
 function picHtml(d, l) {
   const url = d?.photo_url ?? l?.photo_url;
@@ -198,13 +199,14 @@ function upsellHtml(cart) {
   if (!pool.length) return "";
   const first = cart[0] && dishMap.get(cart[0].dish_id);
   const sameCat = first ? pool.filter((d) => d.category === first.category) : [];
-  const picks = shuffle(sameCat).concat(shuffle(pool.filter((d) => !sameCat.includes(d)))).slice(0, 4);
-  const who = cart[0] ? `<span dir="auto">${esc(cart[0].name_ar)}</span>` : "nothing";
+  // Most-ordered first (real counts), same category before the rest
+  const byOrders = (list) => shuffle(list).sort((a, b) => (b.orders_qty || 0) - (a.orders_qty || 0));
+  const picks = byOrders(sameCat).concat(byOrders(pool.filter((d) => !sameCat.includes(d)))).slice(0, 4);
   return `<section class="upsell" aria-label="Suggestions">
-    <h3>👀 People who ordered ${who} also ordered…</h3>
+    <h3>👀 Add a side of coworker <small>most ordered first</small></h3>
     <div class="upsell__row">${picks
       .map(
-        (d) => `<div class="upsell__card"><span class="upsell__pic">${picHtml(d)}</span><b dir="auto">${esc(d.name_ar)}</b><small>${rand(51, 97)}% of coworkers · ${egp(d.price)}</small>
+        (d) => `<div class="upsell__card"><span class="upsell__pic">${picHtml(d)}</span><b dir="auto">${esc(d.name_ar)}</b><small>${d.orders_qty ? `🧾 ${d.orders_qty}× ordered` : "0 orders · be first"} · ${egp(d.price)}</small>
         <button class="btn slime" type="button" data-up="${esc(d.id)}" aria-label="Add ${esc(d.name_ar)} to the order">+ Add</button></div>`,
       )
       .join("")}</div></section>`;
@@ -240,7 +242,7 @@ function stepCart() {
               <label><span class="cap-sr">Size for ${esc(l.name_ar)}</span><select class="co-select" data-size data-i="${i}">${Object.entries(config.sizes)
                 .map(([k, s]) => `<option value="${esc(k)}" ${k === l.size ? "selected" : ""}>${esc(s.ar)} · ${esc(s.en)}</option>`)
                 .join("")}</select></label>
-              <div class="stepper"><button type="button" data-i="${i}" data-q="-1" aria-label="One less ${esc(l.name_ar)}">−</button><output aria-live="polite">${l.qty}</output><button type="button" data-i="${i}" data-q="1" aria-label="One more ${esc(l.name_ar)}">+</button></div>
+              <div class="stepper"><button type="button" data-i="${i}" data-q="-1" aria-label="One less ${esc(l.name_ar)}">−</button><input class="qty-in" type="number" inputmode="numeric" min="1" max="${MAX_QTY}" value="${l.qty}" data-i="${i}" data-qty data-no-enter aria-label="Quantity for ${esc(l.name_ar)} (1–${MAX_QTY})"><button type="button" data-i="${i}" data-q="1" aria-label="One more ${esc(l.name_ar)}">+</button></div>
               <button class="tiny-link" type="button" data-del="${i}">🗑️ remove</button>
             </div>
             <details class="co-addons" ${l.addons.length ? "open" : ""}><summary>➕ Add-ons${l.addons.length ? ` (${l.addons.length})` : ""}</summary><div class="mini-chips">${addons}</div></details>
@@ -248,7 +250,7 @@ function stepCart() {
         </article>`;
       })
       .join("")}</div>
-    <p class="regret">🔥 <b>${kcal.toLocaleString("en-US")} kcal of regret</b> · ≈ ${Math.max(1, Math.round(kcal / 150))} flights of stairs to the HR office</p>
+    <p class="regret">🔥 ${kcal ? `<b>${kcal.toLocaleString("en-US")} kcal of regret</b> · ≈ ${Math.max(1, Math.round(kcal / 150))} flights of stairs to the HR office` : `<b>${cart.reduce((n, l) => n + l.qty, 0)} portions of pure regret</b> · HR has been cc'd`}</p>
     <div class="judge"><button class="btn pink" type="button" data-judge>🔮 Judge my order (AI)</button><p class="judge__out" id="judge-out" aria-live="polite" dir="auto"></p></div>
     <div class="co-toggles">
       <label class="check-row"><input type="checkbox" id="cutlery" ${extra.cutlery ? "checked" : ""}><span><b>🍴 Send cutlery / معالق</b><br><small>Or eat with your hands like a real one</small></span></label>
@@ -280,7 +282,7 @@ function updateLine(i, patch) {
   l.key = lineKey(l.dish_id, l.size, l.addons);
   const dup = cart.findIndex((o, j) => j !== i && o.key === l.key);
   if (dup >= 0) {
-    cart[dup].qty = Math.min(9, cart[dup].qty + l.qty);
+    cart[dup].qty = clampQty(cart[dup].qty + l.qty);
     cart.splice(i, 1);
     toast("Merged with the identical line. Efficiency 📈");
   }
@@ -324,7 +326,7 @@ function bindCart() {
         toast("Oops, the + button is left-handed. Try again 🙃");
         play("what");
       }
-      line.qty = Math.min(9, Math.max(1, line.qty + delta));
+      line.qty = clampQty(line.qty + delta);
       saveCart(cart);
       rerenderCart(`[data-i="${i}"][data-q="${t.dataset.q}"]`);
     } else if (t.dataset.del) {
@@ -347,7 +349,13 @@ function bindCart() {
   p.addEventListener("change", (e) => {
     const t = e.target;
     const i = Number(t.dataset.i);
-    if (t.matches("[data-size]")) {
+    if (t.matches("[data-qty]")) {
+      const cart = getCart();
+      if (!cart[i]) return;
+      cart[i].qty = clampQty(t.value);
+      saveCart(cart);
+      rerenderCart(`[data-qty][data-i="${i}"]`);
+    } else if (t.matches("[data-size]")) {
       updateLine(i, { size: t.value });
       rerenderCart(`[data-size][data-i="${i}"]`);
     } else if (t.matches("[data-addon]")) {

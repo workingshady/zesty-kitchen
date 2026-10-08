@@ -379,3 +379,92 @@ html { overflow-x: clip; }
   .beef-form { grid-template-columns: 1fr; }
   .beef-form .duel__vs { justify-self: center; }
 }
+
+/* =====================================================================
+   Home IA v2: hero + search → menu → leaderboard → fun zone (tabs) → soundboard
+   One spacing scale (--sp-*), one container (.wrap 1180px), one section header style.
+   ===================================================================== */
+.hero { padding: var(--sp-6) 0 var(--sp-2); gap: var(--sp-5); align-items: stretch; }
+.hero__copy { display: grid; align-content: center; gap: var(--sp-3); min-width: 0; }
+.hero__copy h1, .hero__copy p { margin: 0; }
+.hero__actions { gap: var(--sp-2); }
+.hero__chips { margin-top: 0; gap: var(--sp-2); }
+.hero__search { flex: none; max-width: 520px; width: 100%; padding: 0 4px 0 14px; box-shadow: var(--shadow-sm); }
+.hero__search .btn { min-height: 36px; padding: .1em 1em; box-shadow: none; }
+.hero__search .btn:hover, .hero__search .btn:active { transform: none; }
+.hero__card { display: grid; align-content: start; }
+.hero__card-title { font-size: 1.4rem; margin: 0 0 4px; }
+.champ__last { margin: 8px 0 0; text-align: center; font-family: var(--font-ui); font-size: .85rem; }
+.offer { margin: var(--sp-5) 0 0; }
+
+/* Menu section: the sticky filter bar sticks only while the menu is on screen */
+.menu-zone .cats { margin: 0 0 var(--sp-2); }
+.cat-intro { margin: var(--sp-3) 0 0; }
+.grid { padding: var(--sp-4) 0 0; gap: var(--sp-5); align-items: stretch; }
+.card { height: 100%; }
+.card__body { gap: var(--sp-1); }
+.card__name, .card__name-en { overflow-wrap: anywhere; }
+.card__eye { background: var(--ink); }
+
+/* Leaderboard: aligned two-column board, equal-height panels on desktop */
+.lb-controls { margin: 0 0 var(--sp-4); }
+.board { gap: var(--sp-5); align-items: stretch; }
+.board__panel { padding: var(--sp-4); }
+.board__panel.worst { display: grid; align-content: start; }
+.mv.new { font-size: .85rem; }
+.podium__cap .mv { font-size: .7rem; margin-inline-end: 2px; }
+.lb-rows { max-height: 560px; overflow-y: auto; padding: 2px 6px 6px 2px; }
+
+/* 🎮 Fun zone: one tab strip + one panel (instead of six stacked cards) */
+.fun { border: var(--border); border-radius: var(--radius); box-shadow: var(--shadow); background: var(--paper); overflow: hidden; }
+.fun__tabs { display: flex; gap: var(--sp-2); overflow-x: auto; scrollbar-width: none; padding: var(--sp-3); border-bottom: var(--border); background: var(--cream); }
+.fun__tabs::-webkit-scrollbar { display: none; }
+.fun__tabs button { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: .2em 1em; border: var(--border); border-radius: 999px; background: var(--paper); font-family: var(--font-ui); font-weight: 700; cursor: pointer; white-space: nowrap; }
+.fun__tabs button:hover { background: var(--mustard); }
+.fun__tabs [aria-selected="true"] { background: var(--ink); color: var(--mustard); box-shadow: var(--shadow-sm); }
+.fun__panels { padding: var(--sp-4); }
+.fun .quest { border: 0; border-radius: 0; box-shadow: none; padding: 0; background: transparent; }
+.fun .quest > p { margin: var(--sp-2) 0 var(--sp-3); }
+.fun .quest__head { padding-bottom: var(--sp-2); }
+.fun .quest--duel .duel, .fun .quest--potd .potd { max-width: 760px; }
+.fun .quest--duel .duel { margin-inline: auto; }
+.fun .potd { grid-template-columns: 220px minmax(0, 1fr); gap: var(--sp-5); }
+.fun .horo__signs { max-width: 760px; }
+.fun .beef-form, .fun .excuse-form, .fun .rot-form { max-width: 760px; }
+
+/* Soundboard section: left-aligned header like every other section, content centered under it */
+.soundboard-wrap.section { max-width: none; padding: var(--sp-7) 0 0; text-align: start; justify-items: stretch; gap: var(--sp-3); }
+.soundboard-wrap.section .section__head { margin-bottom: 0; }
+.soundboard-wrap.section .section__head h2 { font-size: clamp(1.6rem, 4.2vw, 2.2rem); }
+.sb-help { color: var(--muted); font-family: var(--font-ui); }
+
+.site-footer .wrap { max-width: 760px; }
+
+@media (max-width: 760px) {
+  .hero { padding-top: var(--sp-5); }
+  .hero__search { max-width: none; }
+  .board__panel.worst { align-content: start; }
+  .lb-rows { max-height: none; overflow: visible; }
+}
+@media (max-width: 520px) {
+  .section { padding-top: var(--sp-6); }
+  .soundboard-wrap.section { padding: var(--sp-6) 0 0; }
+  .grid { gap: var(--sp-4) var(--sp-3); }
+  .fun__tabs { padding: var(--sp-2); }
+  .fun__tabs button { padding: .2em .8em; font-size: .88rem; }
+  .fun__panels { padding: var(--sp-3); }
+  .fun .potd { grid-template-columns: 1fr; }
+  .hero__search .btn { padding: .1em .8em; }
+  .card__eye { display: inline-block; top: 6px; inset-inline-end: 6px; font-size: .62rem; padding: 0 .45em; }
+}
+.sb-help { text-align: center; }
+
+/* 🕹️ Arcade banner inside the Fun zone (links to /arcade) */
+.fun__arcade { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-bottom: var(--border); background: var(--sky); color: var(--ink); text-decoration: none; }
+.fun__arcade:hover { background: var(--mustard); }
+.fun__arcade-icon { font-size: 2rem; line-height: 1; }
+.fun__arcade-txt { display: grid; min-width: 0; flex: 1; font-family: var(--font-ui); line-height: 1.25; }
+.fun__arcade-txt b { font-family: var(--font-display); font-weight: 400; font-size: 1.3rem; }
+.fun__arcade-txt small { color: var(--ink); opacity: .8; }
+.fun__arcade-go { flex: none; min-height: 40px; }
+@media (max-width: 520px) { .fun__arcade { padding: var(--sp-3); } .fun__arcade-go { padding: .2em .9em; } }

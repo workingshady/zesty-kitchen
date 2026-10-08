@@ -7,6 +7,8 @@ function createMemoryStore({ seed = true } = {}) {
   let dishes = seed ? SEED_DISHES.map((d, i) => ({ ...d, id: crypto.randomUUID(), photo_path: null, is_visible: true, sort_order: i, created_at: now() })) : [];
   let reviews = [];
   let orders = [];
+  const players = [];
+  const scores = [];
   const settings = new Map();
   const photos = new Map();
   let orderCounter = 1000;
@@ -76,6 +78,27 @@ function createMemoryStore({ seed = true } = {}) {
       const before = orders.length;
       orders = orders.filter((o) => o.id !== id);
       return orders.length < before;
+    },
+    // ---- arcade: players (nickname + hashed PIN) and scores ----
+    async getPlayer(nicknameKey) {
+      return players.find((p) => p.nickname_key === nicknameKey) || null;
+    },
+    async createPlayer(fields) {
+      const player = { ...fields, id: crypto.randomUUID(), created_at: now() };
+      players.push(player);
+      return player;
+    },
+    async addScore(fields) {
+      const row = { ...fields, id: crypto.randomUUID(), created_at: now() };
+      scores.push(row);
+      return row;
+    },
+    async topScores(game, limit = 300) {
+      return scores
+        .filter((s) => s.game === game)
+        .sort((a, b) => b.score - a.score || a.created_at.localeCompare(b.created_at))
+        .slice(0, limit)
+        .map((s) => ({ ...s, nickname: players.find((p) => p.id === s.player_id)?.nickname || "?" }));
     },
     async getSetting(key) {
       return settings.has(key) ? settings.get(key) : null;

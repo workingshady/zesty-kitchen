@@ -7,6 +7,8 @@ const cookieParser = require("cookie-parser");
 const { publicRouter } = require("./routes/public");
 const { adminRouter } = require("./routes/admin");
 const { aiRouter } = require("./routes/ai");
+const { gamesRouter } = require("./routes/games");
+const { sitemapRouter } = require("./routes/sitemap");
 const { agentRouter } = require("./routes/agent");
 const { createAi } = require("./ai");
 
@@ -49,6 +51,8 @@ function createApp({ db, env = process.env, ai = createAi(env) }) {
   });
 
   app.use("/api/ai", aiRouter(db, ai));
+  app.use("/api/games", gamesRouter(db));
+  app.use(sitemapRouter({ db, adminPath: adminEnabled ? adminPath : "", sessionSecret: env.SESSION_SECRET || env.ADMIN_PASSWORD }));
   app.use("/api/agent", agentRouter(db, ai));
   app.use("/api", publicRouter(db));
 

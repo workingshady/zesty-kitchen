@@ -474,9 +474,9 @@ export function addToCart(item) {
   const cart = getCart();
   const key = lineKey(item.dish_id, item.size, item.addons);
   const existing = cart.find((l) => l.key === key);
-  if (existing) existing.qty = Math.min(9, existing.qty + item.qty);
+  if (existing) existing.qty = Math.min(99, existing.qty + item.qty);
   else cart.push({ ...item, key });
-  saveCart(cart.slice(0, 10));
+  saveCart(cart.slice(0, 30));
 }
 export const cartCount = () => getCart().reduce((n, l) => n + l.qty, 0);
 
@@ -699,23 +699,49 @@ function idleDvd() {
   }, 3000);
 }
 
-// ---------- fake live order notifications ----------
-const FAKE_PEOPLE = ["Hossam from Accounting", "Mona from HR", "the intern", "your manager", "Karim (on mute)", "Nour from Sales", "IT guy who never answers", "الأستاذ ممدوح", "unc from Finance", "someone who left 2 years ago"];
+// ---------- live order notifications: REAL recent orders only (first name, dish, size, time) ----------
+let statsPromise = null;
+let statsAt = 0;
+/** GET /api/stats, shared by every page; refetched after ~30s (server caches too). */
+export function getStats({ fresh = false } = {}) {
+  if (fresh || !statsPromise || Date.now() - statsAt > 30_000) {
+    statsAt = Date.now();
+    statsPromise = api("/api/stats").catch(() => null);
+  }
+  return statsPromise;
+}
+const SIZE_AR = { quarter: "ربع", half: "نص", whole: "كامل", family: "عيلة" };
+export function timeAgo(iso) {
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? "" : "s"} ago`;
+}
 function liveOrders() {
+  const shown = new Set(store.get("zk_seen_orders", []));
   const tick = async () => {
     setTimeout(tick, 25_000 + Math.random() * 25_000);
     // Don't interrupt someone mid-modal (dish / wheel) or spend work on a hidden tab
     if (calm() || document.hidden || document.querySelector("dialog[open]") || document.documentElement.classList.contains("zka-open")) return;
-    const dishes = (await getDishes()).filter((d) => !d.badges.includes("sold_out"));
-    if (!dishes.length) return;
-    const d = pick(dishes);
-    const size = pick(["ربع", "نص", "عيلة", "كامل"]);
-    const line = pick([
-      `بيقولك <b>${pick(FAKE_PEOPLE)}</b> just ordered <b dir="auto">${esc(d.name_ar)}</b> (${size})`,
-      `🔥 ${3 + Math.floor(Math.random() * 20)} people are looking at <b dir="auto">${esc(d.name_ar)}</b> right now`,
-      `<b>${pick(FAKE_PEOPLE)}</b> left a 1🌶️ review on <b dir="auto">${esc(d.name_ar)}</b>. Crash out.`,
-    ]);
-    toast(`${avatarHtml(d)}<span>${line}</span>`, { html: true, cls: "live", ms: 5000 });
+    const stats = await getStats();
+    // Only real orders from the last 24h that this browser hasn't been shown yet
+    const o = stats?.recent_orders?.find((r) => Date.now() - Date.parse(r.created_at) < 864e5 && !shown.has(r.created_at + r.name));
+    if (!o || !o.items.length) return;
+    shown.add(o.created_at + o.name);
+    store.set("zk_seen_orders", [...shown].slice(-30));
+    const dishes = await getDishes();
+    const first = o.items[0];
+    const d = dishes.find((x) => x.id === first.dish_id) || first;
+    const what = o.items
+      .slice(0, 2)
+      .map((i) => `<b dir="auto">${esc(i.name_ar || i.name_en)}</b> (${i.qty > 1 ? `${i.qty}× ` : ""}${SIZE_AR[i.size] || esc(i.size)})`)
+      .join(" + ");
+    const more = o.items.length > 2 ? ` +${o.items.length - 2} more` : "";
+    toast(`${avatarHtml(d)}<span><b dir="auto">${esc(o.name)}</b> ordered ${what}${more} · <small>${timeAgo(o.created_at)}</small></span>`, { html: true, cls: "live", ms: 5000 });
   };
   setTimeout(tick, 12_000);
 }

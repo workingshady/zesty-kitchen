@@ -87,13 +87,14 @@ const SIGNS = {
   leo: "الأسد / Leo", virgo: "العذراء / Virgo", libra: "الميزان / Libra", scorpio: "العقرب / Scorpio",
   sagittarius: "القوس / Sagittarius", capricorn: "الجدي / Capricorn", aquarius: "الدلو / Aquarius", pisces: "الحوت / Pisces",
 };
+// Keys belong to the frontend; the wording keeps work out of it unless the person adds that detail
 const EXCUSES = {
-  late: "being late to the office this morning",
-  task: "not finishing the task that was due today",
-  meeting: "missing a meeting",
+  late: "being late (to plans, a lunch, wherever they were expected)",
+  task: "not doing the thing they promised to do today",
+  meeting: "missing a plan or meeting they agreed to",
   reply: "not replying to messages for 3 days",
-  leave: "leaving work early today",
-  camera: "keeping the camera off in a video call",
+  leave: "leaving early",
+  camera: "oversleeping and missing whatever they had planned",
 };
 const MAX_PHOTO = 4 * 1024 * 1024;
 
@@ -139,7 +140,7 @@ function aiRouter(db, ai) {
     const text = await cached(`roast:${dish.id}:${today()}:${variant}`, async () =>
       ai.generate({
         system: systemFor("roast"),
-        prompt: `Roast this coworker. They are a dish on the menu.\n\n${await dishFacts(db, dish)}\n\nANGLE for this one: ${angleFor(variant)}.\nPick ONE fact above and build the joke on it. Max 30 words, 1–2 short sentences, punchline last. Reply with the roast only.`,
+        prompt: `Roast this coworker. They are a dish on the menu.\n\n${await dishFacts(db, dish)}\n\nANGLE for this one: ${angleFor(variant)}.\nPick ONE fact above and build one observation on it. Max 28 words, 1–2 short sentences, punchline last, no emoji unless it really lands. Reply with the roast only.`,
         maxTokens: 120,
         temperature: TEMP,
       }),
@@ -153,9 +154,9 @@ function aiRouter(db, ai) {
     const text = await ai.generate({
       system: `${PERSONA}
 
-Right now you play كابتن حمادة, the delivery guy. He rides a rolling office chair, has a cracked phone at 3% battery, and has given up on life in a funny way. He is delivering ${dish ? `the coworker "${dish.name_ar}"${dish.catchphrase ? ` (who keeps saying "${dish.catchphrase}")` : ""}` : "a coworker"} to Desk #4 and is very, very late. Every reply has a new, specific, believable-but-absurd excuse (stopped for tea at the 3rd floor, got lost near HR, the coworker escaped from the bag and is hiding in the pantry, the elevator is "thinking"). Never say he's an AI.
+Right now you play كابتن حمادة, the delivery guy: a scooter older than him, a cracked phone at 3% battery, completely at peace with being late. He is delivering ${dish ? `the coworker "${dish.name_ar}"${dish.catchphrase ? ` (who keeps saying "${dish.catchphrase}")` : ""}` : "a coworker"} to the customer and is very late. Every reply has a new, specific, believable-but-absurd excuse (stopped at the ahwa "for one minute", the building has no number, the doorman sent him to the wrong tower, the coworker in the bag asked to stop for koshary, a wedding procession on the bridge). Never say he's an AI.
 ${languageMode()}
-Reply to the customer's WhatsApp message in 1–2 short sentences, like a lazy voice-note-turned-text. Reply only with his message.`,
+Reply to the customer's WhatsApp message in 1–2 short sentences, calm and lazy, no emoji. Reply only with his message.`,
       prompt: message,
       maxTokens: 90,
       temperature: TEMP,
@@ -164,13 +165,13 @@ Reply to the customer's WhatsApp message in 1–2 short sentences, like a lazy v
   });
 
   router.post("/judge", limiter, async (req, res) => {
-    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 10) : [];
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 30) : [];
     if (!items.length) throw v.bad("skill issue: your cart is empty");
-    const list = items.map((i) => `${v.int(i.qty ?? 1, "qty", 1, 9)}× ${v.text(String(i.name ?? ""), "name", { max: 60 })} (${v.text(String(i.size ?? "half"), "size", { max: 20 })})`).join(", ");
+    const list = items.map((i) => `${v.int(i.qty ?? 1, "qty", 1, 99)}× ${v.text(String(i.name ?? ""), "name", { max: 60 })} (${v.text(String(i.size ?? "half"), "size", { max: 20 })})`).join(", ");
     const totalQty = items.reduce((n, i) => n + Number(i.qty ?? 1), 0);
     const text = await ai.generate({
       system: systemFor("judge"),
-      prompt: `Cart (${totalQty} coworkers total): ${list}.\nJudge it in max 2 short sentences: a verdict (W or L), an aura score like "+6700 aura" or "-67 aura", and ONE specific reason that uses an actual name, quantity or size from the cart (ordering 3 of the same person, a "family" size of someone, a weird combo). Reply with the verdict only.`,
+      prompt: `Cart (${totalQty} coworkers total): ${list}.\nJudge it in max 2 short sentences: a verdict (W or L) and ONE specific, dry observation that uses an actual name, quantity or size from the cart (3 of the same person, a "family" size of someone, a weird combo, what this order says about their evening). Reply with the verdict only.`,
       maxTokens: 110,
       temperature: TEMP,
     });
@@ -181,7 +182,7 @@ Reply to the customer's WhatsApp message in 1–2 short sentences, like a lazy v
     const input = v.text(req.body?.text, "text", { max: 200 });
     const text = await ai.generate({
       system: systemFor("translate"),
-      prompt: `Rewrite this in maximum Egyptian Gen-Z brainrot: same meaning, way more slang, a dramatic twist at the end, max 2 emojis. One sentence. Reply with the rewrite only.\n\nText: ${input}`,
+      prompt: `Rewrite this the way a funny Cairo Gen-Z friend would text it: same meaning, a couple of natural slang words (not a slang pile), one unexpected twist at the end, max 1 emoji. One sentence. Reply with the rewrite only.\n\nText: ${input}`,
       maxTokens: 120,
       temperature: TEMP,
     });
@@ -198,7 +199,7 @@ Reply to the customer's WhatsApp message in 1–2 short sentences, like a lazy v
     const text = await cached(`reply:${review.id}`, async () =>
       ai.generate({
         system: systemFor("reply"),
-        prompt: `You are now the coworker "${dish.name_ar}" (not the chef). Facts about you:\n${await dishFacts(db, dish, { reviews: false })}\n\nA customer named "${review.author_name}" gave you ${review.chili_rating}/5 chilis and wrote:\n"${review.body}"\n\nReply to them like a petty, unbothered person replying to a hater in the comments: clap back at something specific they wrote, use your catchphrase if you have one. Max 25 words. Reply with the comment only.`,
+        prompt: `You are now the coworker "${dish.name_ar}" (not the chef). Facts about you:\n${await dishFacts(db, dish, { reviews: false })}\n\nA customer named "${review.author_name}" gave you ${review.chili_rating}/5 chilis and wrote:\n"${review.body}"\n\nReply like an unbothered person answering a comment: calm, dry, clap back at something specific they wrote; use your catchphrase only if it fits. Max 25 words, no emoji. Reply with the comment only.`,
         maxTokens: 100,
         temperature: TEMP,
       }),
@@ -206,14 +207,14 @@ Reply to the customer's WhatsApp message in 1–2 short sentences, like a lazy v
     send(res, text, 260);
   });
 
-  // 🔮 Office horoscope: one per sign per day
+  // 🔮 Daily horoscope (برجك النهارده): one per sign per day, about ordinary life, not the office
   router.post("/horoscope", limiter, async (req, res) => {
     const sign = v.oneOf(String(req.body?.sign ?? ""), "sign", Object.keys(SIGNS));
     const lang = languageMode();
     const text = await cached(`horoscope:${sign}:${today()}`, () =>
       ai.generate({
         system: systemFor("horoscope", { lang }),
-        prompt: `Today's horoscope (${today()}) for ${SIGNS[sign]}. Make it a fake, oddly specific prediction about today's day at the office or life: who will annoy them, what food they'll regret, what message they'll leave on seen, a lucky number and an "unlucky coworker energy". Dark, deadpan, max 35 words, 2 sentences. Reply with the horoscope only.`,
+        prompt: `Today's horoscope (${today()}) for ${SIGNS[sign]}. برجك النهارده: a fake, oddly specific prediction about an ordinary day: a food decision they'll regret, a message they'll leave on seen, a relative calling at the wrong time, traffic, one small win. End with a lucky something (number, snack, color). Not about work. Deadpan, max 35 words, 2 sentences. Reply with the horoscope only.`,
         maxTokens: 130,
         temperature: TEMP,
       }),
@@ -231,7 +232,7 @@ Reply to the customer's WhatsApp message in 1–2 short sentences, like a lazy v
     const text = await cached(`duo:${pair}:${today()}:${variant}`, async () =>
       ai.generate({
         system: systemFor("duo"),
-        prompt: `Coworker A:\n${await dishFacts(db, a, { reviews: false })}\n\nCoworker B:\n${await dishFacts(db, b, { reviews: false })}\n\nDecide: are they BEEF (petty rivals) or BESTIES (chaotic duo)? Start with "🥩 BEEF" or "🤝 BESTIES", then describe their dynamic in max 35 words using one specific fact from each (catchphrase vs catchphrase, food vs food). Friendship or rivalry only, nothing romantic. Reply with that only.`,
+        prompt: `Coworker A:\n${await dishFacts(db, a, { reviews: false })}\n\nCoworker B:\n${await dishFacts(db, b, { reviews: false })}\n\nDecide: are they BEEF (petty rivals) or BESTIES (chaotic duo)? Start with "🥩 BEEF" or "🤝 BESTIES", then describe their dynamic in max 35 words using one specific fact from each (catchphrase vs catchphrase, food vs food), like a scene from a family lunch or a road trip. Friendship or rivalry only, nothing romantic. Reply with that only.`,
         maxTokens: 130,
         temperature: TEMP,
       }),
@@ -245,7 +246,7 @@ Reply to the customer's WhatsApp message in 1–2 short sentences, like a lazy v
     const detail = req.body?.detail ? v.text(String(req.body.detail), "detail", { max: 100 }) : "";
     const text = await ai.generate({
       system: systemFor("excuse"),
-      prompt: `Write the excuse message someone will send their manager for ${EXCUSES[situation]}${detail ? ` (extra context from them: ${detail})` : ""}. First person, ready to send, confident, absurdly specific, a little dark (the microbus, the building's elevator, the neighbor's wedding, the cat, a power cut, an existential crisis), max 30 words. Reply with the message only.`,
+      prompt: `Write the excuse message someone will send to whoever was waiting on them, for ${EXCUSES[situation]}${detail ? ` (extra context from them: ${detail})` : ""}. First person, ready to send, confident, oddly specific and believable for one second (the microbus, the building's elevator, the neighbor's wedding, the cat, a power cut, their mom), max 30 words, no emoji. Reply with the message only.`,
       maxTokens: 110,
       temperature: TEMP,
     });
@@ -263,7 +264,7 @@ Reply to the customer's WhatsApp message in 1–2 short sentences, like a lazy v
       if (!image) return null;
       return ai.generate({
         system: systemFor("vibe"),
-        prompt: `The attached photo is the coworker "${dish.name_ar}"${dish.catchphrase ? ` (catchphrase: "${dish.catchphrase}")` : ""}. Do a vibe check: one specific thing you see about the expression, pose, background, props or lighting, and what it says about their energy, then a one-word verdict like "aura: +900" or "NPC". NEVER comment on body, weight, face features, skin, hair or attractiveness. If no image is actually attached, roast them for not showing up to their own photo shoot. Max 30 words. Reply with the vibe check only.`,
+        prompt: `The attached photo is the coworker "${dish.name_ar}"${dish.catchphrase ? ` (catchphrase: "${dish.catchphrase}")` : ""}. Do a vibe check: one specific thing you see about the expression, pose, background, props or lighting, and what it says about their energy, then a short dry verdict of a few words. NEVER comment on body, weight, face features, skin, hair or attractiveness. If no image is actually attached, roast them for not showing up to their own photo shoot. Max 30 words. Reply with the vibe check only.`,
         maxTokens: 120,
         temperature: TEMP,
         images: [image],

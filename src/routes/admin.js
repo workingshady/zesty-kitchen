@@ -39,34 +39,128 @@ function dayKeyer(tz) {
   return (date) => fmt.format(new Date(date));
 }
 
-// Dashboard numbers in one pass over orders and one over reviews
-function computeStats({ dishes, reviews, orders, tz, now = Date.now(), photoUrl }) {
-  const dayOf = dayKeyer(tz);
-  const today = dayOf(now);
-  const days = [];
-  for (let i = 13; i >= 0; i--) days.push(dayOf(now - i * 24 * 60 * 60 * 1000));
-  const perDay = new Map(days.map((d) => [d, 0]));
+function hourKeyer(tz) {
+  const opts = { hour: "2-digit", hourCycle: "h23" };
+  let fmt;
+  try {
+    fmt = new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: tz || "Africa/Cairo" });
+  } catch {
+    fmt = new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: "Africa/Cairo" });
+  }
+  return (date) => Number(fmt.format(new Date(date))) % 24;
+}
 
+const firstName = (name) => {
+  const first = String(name || "").trim().split(/\s+/)[0] || "?";
+  return first.charAt(0).toLocaleUpperCase() + first.slice(1);
+};
+
+/** Order numbers for any slice of orders: revenue, top dishes, top customers (first names only), busiest hour. */
+function orderSummary(orders, { tz, dishes = [], photoUrl = () => null } = {}) {
+  const hourOf = hourKeyer(tz);
+  const byId = new Map(dishes.map((d) => [d.id, d]));
   const qty = new Map();
   const itemNames = new Map();
   const payments = {};
+  const customers = new Map();
+  const perHour = Array(24).fill(0);
   let revenue = 0;
-  let ordersToday = 0;
   for (const o of orders) {
-    const day = dayOf(o.created_at);
-    if (day === today) ordersToday++;
-    if (perDay.has(day)) perDay.set(day, perDay.get(day) + 1);
-    revenue += Number(o.total) || 0;
+    const total = Number(o.total) || 0;
+    revenue += total;
     payments[o.payment_method] = (payments[o.payment_method] || 0) + 1;
+    perHour[hourOf(o.created_at)]++;
+    const first = firstName(o.customer_name);
+    const key = first.toLowerCase();
+    const c = customers.get(key) || { name: first, orders: 0, total: 0 };
+    c.orders++;
+    c.total += total;
+    customers.set(key, c);
     for (const item of o.items || []) {
       qty.set(item.dish_id, (qty.get(item.dish_id) || 0) + (Number(item.qty) || 0));
       if (!itemNames.has(item.dish_id)) itemNames.set(item.dish_id, item.name_en || item.name_ar);
     }
   }
+  const topPayment = Object.entries(payments).sort((a, b) => b[1] - a[1])[0];
+  const peak = perHour.reduce((best, n, h) => (n > best.count ? { hour: h, count: n } : best), { hour: null, count: 0 });
+  return {
+    count: orders.length,
+    revenue: round2(revenue),
+    avg_order_value: orders.length ? round2(revenue / orders.length) : 0,
+    payments,
+    top_payment_method: topPayment ? { method: topPayment[0], count: topPayment[1] } : null,
+    top_dishes: [...qty.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id, n]) => {
+        const d = byId.get(id);
+        return { id, name: d ? dishLabel(d) : itemNames.get(id) || "?", deleted: !d, photo_url: d ? photoUrl(d.photo_path) : null, qty: n };
+      }),
+    top_customers: [...customers.values()]
+      .sort((a, b) => b.orders - a.orders || b.total - a.total)
+      .slice(0, 5)
+      .map((c) => ({ ...c, total: round2(c.total) })),
+    busiest_hour: peak.count ? peak : null,
+    orders_per_hour: perHour,
+  };
+}
+
+/** Last `n` day keys (oldest first) in the admin's time zone. */
+function lastDays(n, tz, now = Date.now()) {
+  const dayOf = dayKeyer(tz);
+  const days = [];
+  for (let i = n - 1; i >= 0; i--) days.push(dayOf(now - i * 24 * 60 * 60 * 1000));
+  return days;
+}
+
+const RANGES = { today: 1, "7d": 7, "30d": 30, all: Infinity };
+/** Orders inside a named range ("today", "7d", "30d", "all"), by calendar day in `tz`. */
+function ordersInRange(orders, range, tz, now = Date.now()) {
+  const n = RANGES[range] ?? Infinity;
+  if (n === Infinity) return orders;
+  const keep = new Set(lastDays(n, tz, now));
+  const dayOf = dayKeyer(tz);
+  return orders.filter((o) => keep.has(dayOf(o.created_at)));
+}
+
+// Dashboard numbers in one pass over orders and one over reviews
+function computeStats({ dishes, reviews, orders, tz, now = Date.now(), photoUrl }) {
+  const dayOf = dayKeyer(tz);
+  const days = lastDays(14, tz, now);
+  const today = days[days.length - 1];
+  const week = new Set(days.slice(-7));
+  const perDay = new Map(days.map((d) => [d, { count: 0, revenue: 0 }]));
+  let ordersToday = 0;
+  let orders7d = 0;
+  let revenueToday = 0;
+  let revenue7d = 0;
+  for (const o of orders) {
+    const day = dayOf(o.created_at);
+    const total = Number(o.total) || 0;
+    if (day === today) (ordersToday++, (revenueToday += total));
+    if (week.has(day)) (orders7d++, (revenue7d += total));
+    const slot = perDay.get(day);
+    if (slot) (slot.count++, (slot.revenue += total));
+  }
+  const summary = orderSummary(orders, { tz, dishes, photoUrl });
 
   const byId = new Map(dishes.map((d) => [d.id, d]));
   let chiliSum = 0;
-  for (const r of reviews) chiliSum += Number(r.chili_rating) || 0;
+  const chili = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  const perDish = new Map();
+  for (const r of reviews) {
+    const c = Number(r.chili_rating) || 0;
+    chiliSum += c;
+    if (chili[c] !== undefined) chili[c]++;
+    const p = perDish.get(r.dish_id) || { sum: 0, n: 0 };
+    p.sum += c;
+    p.n++;
+    perDish.set(r.dish_id, p);
+  }
+  const rated = [...perDish.entries()]
+    .filter(([id]) => byId.has(id))
+    .map(([id, p]) => ({ id, name: dishLabel(byId.get(id)), avg: Math.round((p.sum / p.n) * 10) / 10, reviews: p.n }));
+  const byAvg = (a, b) => b.avg - a.avg || b.reviews - a.reviews;
 
   const visible = dishes.filter((d) => d.is_visible).length;
   const attention = [];
@@ -78,28 +172,31 @@ function computeStats({ dishes, reviews, orders, tz, now = Date.now(), photoUrl 
     if (issues.length) attention.push({ id: d.id, name_ar: d.name_ar, name_en: d.name_en || "", issues });
   }
 
-  const topPayment = Object.entries(payments).sort((a, b) => b[1] - a[1])[0];
   return {
     total_orders: orders.length,
     orders_today: ordersToday,
-    revenue: round2(revenue),
-    avg_order_value: orders.length ? round2(revenue / orders.length) : 0,
+    orders_7d: orders7d,
+    revenue: summary.revenue,
+    revenue_today: round2(revenueToday),
+    revenue_7d: round2(revenue7d),
+    avg_order_value: summary.avg_order_value,
     reviews_count: reviews.length,
     avg_chili: reviews.length ? Math.round((chiliSum / reviews.length) * 10) / 10 : null,
+    chili_distribution: chili,
+    best_rated: [...rated].sort(byAvg).slice(0, 3),
+    // Worst never repeats a dish already listed as best (matters when only a few dishes have reviews)
+    worst_rated: [...rated].sort((a, b) => byAvg(b, a)).filter((d) => ![...rated].sort(byAvg).slice(0, 3).some((x) => x.id === d.id)).slice(0, 3),
     dishes_total: dishes.length,
     dishes_visible: visible,
     dishes_hidden: dishes.length - visible,
     dishes_without_photo: dishes.filter((d) => !d.photo_path).length,
-    top_dishes: [...qty.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id, n]) => {
-        const d = byId.get(id);
-        return { id, name: d ? dishLabel(d) : itemNames.get(id) || "?", deleted: !d, photo_url: d ? photoUrl(d.photo_path) : null, qty: n };
-      }),
-    orders_per_day: days.map((day) => ({ day, count: perDay.get(day) })),
-    payment_methods: payments,
-    top_payment_method: topPayment ? { method: topPayment[0], count: topPayment[1] } : null,
+    top_dishes: summary.top_dishes,
+    top_customers: summary.top_customers,
+    busiest_hour: summary.busiest_hour,
+    orders_per_hour: summary.orders_per_hour,
+    orders_per_day: days.map((day) => ({ day, count: perDay.get(day).count, revenue: round2(perDay.get(day).revenue) })),
+    payment_methods: summary.payments,
+    top_payment_method: summary.top_payment_method,
     latest_reviews: reviews.slice(0, 5).map((r) => ({ ...r, dish_name: byId.has(r.dish_id) ? dishLabel(byId.get(r.dish_id)) : "?" })),
     needs_attention: attention,
   };
@@ -128,6 +225,70 @@ function dishFields(body, { partial }) {
   return out;
 }
 
+const withPhoto = (db, d) => ({ ...d, price: Number(d.price), photo_url: db.photoUrl(d.photo_path) });
+
+// Copy without the photo (two dishes sharing one file would break when either is deleted). Starts hidden.
+async function duplicateDish(db, id) {
+  const src = await db.getDish(id);
+  if (!src) return null;
+  const dishes = await db.listDishes();
+  const copy = (name, max) => (name ? `${name.slice(0, max - 7).trim()} (copy)` : "");
+  const fields = {
+    ...dishFields({ ...src, price: Number(src.price) }, { partial: false }),
+    name_ar: copy(src.name_ar, 60),
+    name_en: copy(src.name_en, 60),
+    is_visible: false,
+    sort_order: dishes.length,
+  };
+  const dish = await db.createDish(fields);
+  return { ...dish, price: Number(dish.price), photo_url: null };
+}
+
+/** Deletes the dish, its reviews (store-level cascade) and its photo. Returns the deleted dish or null. */
+async function deleteDishFully(db, id) {
+  const dish = await db.getDish(id);
+  if (!dish) return null;
+  await db.deleteDish(dish.id);
+  if (dish.photo_path) await db.deletePhoto(dish.photo_path);
+  return dish;
+}
+
+/** Applies one partial update (validated like PUT /dishes/:id) plus badge add/remove to many dishes. */
+async function bulkUpdateDishes(db, ids, { fields = {}, addBadges = [], removeBadges = [] } = {}) {
+  if (!Array.isArray(ids) || !ids.length || ids.length > 200 || ids.some((id) => typeof id !== "string")) throw v.bad("ids must be a list (1–200)");
+  const base = dishFields(fields, { partial: true });
+  [...addBadges, ...removeBadges].forEach((b) => v.oneOf(b, "badge", menu.BADGES));
+  const updated = [];
+  const missing = [];
+  for (const id of ids) {
+    const dish = await db.getDish(id);
+    if (!dish) {
+      missing.push(id);
+      continue;
+    }
+    const patch = { ...base };
+    if (addBadges.length || removeBadges.length) {
+      const set = new Set(patch.badges || dish.badges || []);
+      addBadges.forEach((b) => set.add(b));
+      removeBadges.forEach((b) => set.delete(b));
+      patch.badges = [...set];
+    }
+    if (!Object.keys(patch).length) throw v.bad("skill issue: nothing to change");
+    updated.push(await db.updateDish(id, patch));
+  }
+  return { updated, missing };
+}
+
+const HIGHLIGHT_KEY = "highlighted_reviews";
+async function highlightedReviews(db) {
+  const list = await db.getSetting(HIGHLIGHT_KEY).catch(() => null);
+  return Array.isArray(list) ? list.map(String) : [];
+}
+
+// Imports and backups can be bigger than the app-wide 100 KB JSON limit
+const IMPORT_TYPE = "application/vnd.zk-import+json";
+const importJson = express.json({ type: IMPORT_TYPE, limit: "2mb" });
+
 function adminRouter(db, { password, sessionSecret, secureCookies, ai }) {
   const router = express.Router();
 
@@ -151,6 +312,9 @@ function adminRouter(db, { password, sessionSecret, secureCookies, ai }) {
   });
 
   if (ai) router.use("/ai", aiAdminRouter(ai));
+  // Required here (not at the top) because chef-agent.js reuses this file's helpers
+  const { chefAgentRouter } = require("./chef-agent");
+  router.use("/agent", chefAgentRouter(db, ai, { secret: sessionSecret }));
 
   router.post("/logout", (req, res) => {
     res.clearCookie(auth.COOKIE_NAME, { path: "/" });
@@ -200,28 +364,54 @@ function adminRouter(db, { password, sessionSecret, secureCookies, ai }) {
     res.json(dish);
   });
 
-  // Copy without the photo (two dishes sharing one file would break when either is deleted). Starts hidden.
+  // Same partial update for many dishes: bulk category change, badge add/remove, visibility
+  router.post("/dishes/bulk", async (req, res) => {
+    const b = req.body || {};
+    const list = (x) => (Array.isArray(x) ? x.map(String) : []);
+    const { updated, missing } = await bulkUpdateDishes(db, b.ids, { fields: b.fields || {}, addBadges: list(b.add_badges), removeBadges: list(b.remove_badges) });
+    res.json({ ok: true, updated: updated.length, missing });
+  });
+
+  // Import dishes from a JSON backup (or a hand-written list). Validates everything before writing anything.
+  router.post("/dishes/import", importJson, async (req, res) => {
+    const b = req.body || {};
+    const list = Array.isArray(b) ? b : Array.isArray(b.dishes) ? b.dishes : null;
+    if (!list || !list.length) throw v.bad("skill issue: send { dishes: [...] }");
+    if (list.length > 300) throw v.bad("skill issue: max 300 dishes per import");
+    const clean = list.map((d, i) => {
+      try {
+        return dishFields({ ...d, price: d?.price === undefined ? d?.price : Number(d.price) }, { partial: false });
+      } catch (err) {
+        throw v.bad(`Dish #${i + 1} (${String(d?.name_ar || d?.name_en || "no name").slice(0, 40)}): ${err.message}`);
+      }
+    });
+    const existing = await db.listDishes();
+    const skip = b.skip_existing !== false;
+    const names = new Set(existing.map((d) => String(d.name_ar).trim().toLowerCase()));
+    let created = 0;
+    let skipped = 0;
+    for (const fields of clean) {
+      const key = fields.name_ar.toLowerCase();
+      if (skip && names.has(key)) {
+        skipped++;
+        continue;
+      }
+      names.add(key);
+      await db.createDish({ ...fields, sort_order: existing.length + created });
+      created++;
+    }
+    res.json({ ok: true, created, skipped });
+  });
+
   router.post("/dishes/:id/duplicate", async (req, res) => {
-    const src = await db.getDish(req.params.id);
-    if (!src) return res.status(404).json({ error: "Dish not found" });
-    const dishes = await db.listDishes();
-    const copy = (name, max) => (name ? `${name.slice(0, max - 7).trim()} (copy)` : "");
-    const fields = {
-      ...dishFields({ ...src, price: Number(src.price) }, { partial: false }),
-      name_ar: copy(src.name_ar, 60),
-      name_en: copy(src.name_en, 60),
-      is_visible: false,
-      sort_order: dishes.length,
-    };
-    const dish = await db.createDish(fields);
-    res.status(201).json({ ...dish, price: Number(dish.price), photo_url: null });
+    const dish = await duplicateDish(db, req.params.id);
+    if (!dish) return res.status(404).json({ error: "Dish not found" });
+    res.status(201).json(dish);
   });
 
   router.delete("/dishes/:id", async (req, res) => {
-    const dish = await db.getDish(req.params.id);
+    const dish = await deleteDishFully(db, req.params.id);
     if (!dish) return res.status(404).json({ error: "Dish not found" });
-    await db.deleteDish(dish.id);
-    if (dish.photo_path) await db.deletePhoto(dish.photo_path);
     res.json({ ok: true });
   });
 
@@ -248,9 +438,27 @@ function adminRouter(db, { password, sessionSecret, secureCookies, ai }) {
   });
 
   router.get("/reviews", async (req, res) => {
-    const [reviews, dishes] = await Promise.all([db.listReviews(), db.listDishes()]);
-    const names = new Map(dishes.map((d) => [d.id, d.name_en]));
-    res.json(reviews.map((r) => ({ ...r, dish_name: names.get(r.dish_id) || "?" })));
+    const [reviews, dishes, starred] = await Promise.all([db.listReviews(), db.listDishes(), highlightedReviews(db)]);
+    const byId = new Map(dishes.map((d) => [d.id, d]));
+    const hl = new Set(starred);
+    res.json(
+      reviews.map((r) => {
+        const d = byId.get(r.dish_id);
+        return { ...r, dish_name: d ? dishLabel(d) : "?", dish_visible: Boolean(d?.is_visible), highlighted: hl.has(r.id) };
+      }),
+    );
+  });
+
+  // ⭐ Highlight a review (admin bookmark, stored as a setting so no schema change is needed)
+  router.post("/reviews/:id/highlight", async (req, res) => {
+    const id = String(req.params.id);
+    const on = req.body?.on !== false;
+    const exists = (await db.listReviews()).some((r) => r.id === id);
+    if (!exists) return res.status(404).json({ error: "Review not found" });
+    const set = new Set(await highlightedReviews(db));
+    on ? set.add(id) : set.delete(id);
+    await db.setSetting(HIGHLIGHT_KEY, [...set].slice(-500));
+    res.json({ ok: true, highlighted: on });
   });
 
   router.delete("/reviews/:id", async (req, res) => {
@@ -269,13 +477,61 @@ function adminRouter(db, { password, sessionSecret, secureCookies, ai }) {
     res.json({ ok: true });
   });
 
+  // Optional { since }: count the leaderboard from a past date instead of "now"
   router.post("/leaderboard/reset", async (req, res) => {
-    const since = new Date().toISOString();
+    const raw = req.body?.since;
+    let since = new Date().toISOString();
+    if (raw !== undefined && raw !== null && raw !== "") {
+      const t = new Date(String(raw)).getTime();
+      if (!Number.isFinite(t) || t > Date.now() + 60_000 || t < Date.parse("2020-01-01")) throw v.bad("skill issue: since must be a real date, not in the future");
+      since = new Date(t).toISOString();
+    }
     await db.setSetting("leaderboard_since", since);
     res.json({ ok: true, since });
+  });
+
+  router.get("/settings", async (req, res) => {
+    const [since, starred] = await Promise.all([db.getSetting("leaderboard_since"), highlightedReviews(db)]);
+    const diag = ai?.diagnostics ? ai.diagnostics() : null;
+    res.json({
+      leaderboard_since: since || null,
+      highlighted_reviews: starred.length,
+      store: db.kind,
+      ai: { enabled: Boolean(ai?.enabled), cap: diag?.cap ?? null, used_today: diag?.usage?.count ?? 0 },
+    });
+  });
+
+  // Full JSON backup: dishes (photo paths, not bytes), reviews, orders, settings
+  router.get("/export", async (req, res) => {
+    const [dishes, reviews, orders, since, starred] = await Promise.all([db.listDishes(), db.listReviews(), db.listOrders(), db.getSetting("leaderboard_since"), highlightedReviews(db)]);
+    const day = new Date().toISOString().slice(0, 10);
+    res.set("Content-Disposition", `attachment; filename="zesty-backup-${day}.json"`);
+    res.json({
+      app: "zesty-kitchen",
+      version: 1,
+      exported_at: new Date().toISOString(),
+      dishes: dishes.map((d) => withPhoto(db, d)),
+      reviews,
+      orders,
+      settings: { leaderboard_since: since || null, highlighted_reviews: starred },
+    });
   });
 
   return router;
 }
 
-module.exports = { adminRouter, computeStats };
+module.exports = {
+  adminRouter,
+  computeStats,
+  orderSummary,
+  ordersInRange,
+  dayKeyer,
+  dishFields,
+  dishLabel,
+  duplicateDish,
+  deleteDishFully,
+  bulkUpdateDishes,
+  withPhoto,
+  RANGES,
+  IMPORT_TYPE,
+};

@@ -337,3 +337,107 @@ test("new AI side quests: horoscope, duo, excuse, review reply, vibe check", asy
   assert.ok(/NEVER comment on body/.test(last().prompt));
   assert.equal((await request(off).post("/api/ai/vibe-check").send({ dish_id: a.id })).status, 503);
 });
+
+test("GET /api/stats returns real aggregates, first names only, and no private fields", async () => {
+  const { app, db } = setup();
+  const [a, b, c] = await db.listDishes();
+  let stats = (await request(app).get("/api/stats")).body;
+  assert.equal(stats.total_orders, 0);
+  assert.equal(stats.orders_today, 0);
+  assert.equal(stats.recent_orders.length, 0);
+  assert.equal(stats.ranking.length, (await db.listDishes()).length);
+  assert.equal(stats.rating.review_count, 0);
+  assert.equal(stats.rating.avg_chili, null);
+
+  const order = (customer_name, items) => request(app).post("/api/orders").send({ customer_name, payment_method: "vibes", note: "secret note", items });
+  assert.equal((await order("Mona Ali", [{ dish_id: a.id, size: "half", addons: [], qty: 5 }])).status, 201);
+  assert.equal((await order("Karim", [{ dish_id: b.id, size: "whole", addons: [], qty: 2 }, { dish_id: a.id, size: "quarter", addons: [], qty: 1 }])).status, 201);
+  await request(app).post(`/api/dishes/${b.id}/reviews`).send({ author_name: "X", chili_rating: 4, awkward_rating: 2, body: "spicy" });
+  await request(app).post(`/api/dishes/${b.id}/reviews`).send({ author_name: "Y", chili_rating: 1, awkward_rating: 2, body: "mid" });
+
+  stats = (await request(app).get("/api/stats")).body;
+  assert.equal(stats.total_orders, 2);
+  assert.equal(stats.orders_today, 2);
+  assert.equal(stats.ranking[0].id, a.id);
+  assert.equal(stats.ranking[0].orders_qty, 6);
+  assert.equal(stats.ranking[0].rank, 1);
+  assert.equal(stats.ranking[0].movement, "new"); // first orders this week
+  assert.equal(stats.ranking[0].days_since_last_order, 0);
+  assert.equal(stats.ranking[0].streak_days, 1);
+  assert.equal(stats.ranking[1].id, b.id);
+  assert.equal(stats.dishes[b.id].orders_qty, 2);
+  assert.equal(stats.dishes[b.id].review_count, 2);
+  assert.equal(stats.dishes[b.id].avg_chili, 2.5);
+  assert.equal(stats.dishes[c.id].orders_qty, 0);
+  assert.equal(stats.dishes[c.id].last_ordered_at, null);
+  assert.equal(stats.rating.review_count, 2);
+  assert.equal(stats.rating.avg_chili, 2.5);
+  // newest first, first name only, nothing private
+  assert.equal(stats.recent_orders.length, 2);
+  assert.equal(stats.recent_orders[0].name, "Karim");
+  assert.equal(stats.recent_orders[1].name, "Mona");
+  assert.deepEqual(stats.recent_orders[1].items.map((i) => [i.dish_id, i.size, i.qty]), [[a.id, "half", 5]]);
+  const raw = JSON.stringify(stats);
+  assert.ok(!raw.includes("secret note"));
+  assert.ok(!raw.includes("Mona Ali"));
+  assert.ok(!raw.includes("payment_method"));
+  // /api/dishes has no fake viewer counts any more
+  const dishes = (await request(app).get("/api/dishes")).body;
+  assert.ok(dishes.every((d) => !("viewers" in d)));
+  assert.equal(dishes.find((d) => d.id === a.id).most_ordered, true);
+});
+
+test("stats movement compares against the board a week ago, and resets follow leaderboard_since", async () => {
+  const { app, db } = setup();
+  const [a, b] = await db.listDishes();
+  const old = new Date(Date.now() - 9 * 864e5).toISOString();
+  // a led last week; b overtakes this week
+  const o1 = await db.createOrder({ customer_name: "Old", items: [{ dish_id: a.id, name_ar: a.name_ar, name_en: a.name_en, size: "half", addons: [], qty: 3, unit_price: 1 }], subtotal: 3, fees: [], total: 3, payment_method: "vibes", note: null });
+  const o2 = await db.createOrder({ customer_name: "Older", items: [{ dish_id: b.id, name_ar: b.name_ar, name_en: b.name_en, size: "half", addons: [], qty: 1, unit_price: 1 }], subtotal: 1, fees: [], total: 1, payment_method: "vibes", note: null });
+  o1.created_at = old;
+  o2.created_at = old;
+  await request(app).post("/api/orders").send({ customer_name: "New", payment_method: "vibes", items: [{ dish_id: b.id, size: "half", addons: [], qty: 9 }] });
+  let stats = (await request(app).get("/api/stats")).body;
+  const rowA = stats.ranking.find((r) => r.id === a.id);
+  const rowB = stats.ranking.find((r) => r.id === b.id);
+  assert.equal(rowB.rank, 1);
+  assert.equal(rowB.movement, 1); // ▲1
+  assert.equal(rowA.movement, -1); // ▼1
+  assert.equal(rowA.days_since_last_order >= 8, true);
+  assert.equal(stats.orders_today, 1);
+
+  await db.setSetting("leaderboard_since", new Date(Date.now() - 864e5).toISOString());
+  stats = (await request(app).get("/api/stats")).body;
+  assert.equal(stats.ranking[0].id, b.id);
+  assert.equal(stats.ranking[0].orders_qty, 9);
+  assert.equal(stats.dishes[a.id].orders_qty, 0);
+  assert.equal(stats.dishes[a.id].orders_qty_all_time, 3);
+  assert.equal(stats.total_orders, 3);
+  assert.equal(stats.board_orders, 1);
+});
+
+test("bigger orders: qty up to 99 per line and up to 30 lines", async () => {
+  const { app, db } = setup();
+  const list = await db.listDishes();
+  const dish = list[0];
+  const send = (items) => request(app).post("/api/orders").send({ customer_name: "Big", payment_method: "vibes", items });
+  assert.equal((await send([{ dish_id: dish.id, size: "half", addons: [], qty: 99 }])).status, 201);
+  assert.equal((await send([{ dish_id: dish.id, size: "half", addons: [], qty: 100 }])).status, 400);
+  const sizes = ["quarter", "half", "whole", "family"];
+  const lines = Array.from({ length: 31 }, (_, i) => ({ dish_id: list[i % list.length].id, size: sizes[i % 4], addons: [], qty: 1 }));
+  assert.equal((await send(lines.slice(0, 30))).status, 201);
+  assert.equal((await send(lines)).status, 400);
+});
+
+test("AI tone: compact agent persona, daily (not office) horoscope, hard limits kept", async () => {
+  const persona = require("../src/persona");
+  assert.ok(persona.PERSONA_LITE.length < 900);
+  for (const p of [persona.PERSONA, persona.PERSONA_LITE]) assert.match(p, /religion/);
+  const calls = [];
+  const db = createMemoryStore();
+  const on = createApp({ db, env, ai: { enabled: true, generate: async (args) => (calls.push(args), "ok") } });
+  await request(on).post("/api/ai/horoscope").send({ sign: "aries" });
+  assert.match(calls[0].prompt, /برجك النهارده/);
+  assert.match(calls[0].prompt, /Not about work/);
+  assert.doesNotMatch(calls[0].prompt, /office/i);
+});
