@@ -320,7 +320,7 @@ function rowHtml(m, i, prev, next) {
   return `<div class="${cls}" data-i="${i}">
     ${w === "bot" ? `<span class="zka-row__av" aria-hidden="true">🤵</span>` : ""}
     <div class="zka-row__col">
-      <div class="zka-bubble" dir="auto"><span class="zka-sr">${w === "user" ? "You" : "Waiter"}: </span>${m.error ? "⚠️ " : ""}${esc(m.content)}</div>
+      <div class="zka-bubble" dir="auto"><span class="zka-sr">${w === "user" ? "You" : "Waiter"}: </span>${m.error ? "⚠️ " : ""}${richText(m.content)}</div>
       ${rich}${retry}${meta}
     </div>
   </div>`;
@@ -748,11 +748,22 @@ function closeLightbox() {
   lastFocus?.focus?.();
 }
 
+// AI replies sometimes use markdown: show **bold**/*italic*, drop stray markers (text is escaped first)
+function richText(text) {
+  return esc(text)
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|$|[.,!?،؟])/g, "$1<i>$2</i>")
+    .replace(/(^|\n)\s*[-*]\s+/g, "$1• ")
+    .replace(/\*{1,3}/g, "");
+}
+
 // ---------- composer + "/" hint ----------
 function growInput() {
   const t = el.input;
   t.style.height = "auto";
   t.style.height = `${Math.min(t.scrollHeight, 132)}px`;
+  // Only show a scrollbar once the box hits its max height
+  t.style.overflowY = t.scrollHeight > 132 ? "auto" : "hidden";
   const n = t.value.length;
   el.count.hidden = n < MAX_LEN - 120;
   el.count.textContent = `${n}/${MAX_LEN}`;

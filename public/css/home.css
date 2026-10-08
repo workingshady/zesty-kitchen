@@ -420,17 +420,17 @@ html { overflow-x: clip; }
 .fun__tabs { display: flex; gap: var(--sp-2); overflow-x: auto; scrollbar-width: none; padding: var(--sp-3); border-bottom: var(--border); background: var(--cream); }
 .fun__tabs::-webkit-scrollbar { display: none; }
 .fun__tabs button { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: .2em 1em; border: var(--border); border-radius: 999px; background: var(--paper); font-family: var(--font-ui); font-weight: 700; cursor: pointer; white-space: nowrap; }
-.fun__tabs button:hover { background: var(--mustard); }
+.fun__tabs button:not([aria-selected="true"]):hover { background: var(--mustard); }
 .fun__tabs [aria-selected="true"] { background: var(--ink); color: var(--mustard); box-shadow: var(--shadow-sm); }
 .fun__panels { padding: var(--sp-4); }
 .fun .quest { border: 0; border-radius: 0; box-shadow: none; padding: 0; background: transparent; }
 .fun .quest > p { margin: var(--sp-2) 0 var(--sp-3); }
 .fun .quest__head { padding-bottom: var(--sp-2); }
-.fun .quest--duel .duel, .fun .quest--potd .potd { max-width: 760px; }
+.fun .quest--duel .duel, .fun .quest--potd .potd { max-width: none; }
 .fun .quest--duel .duel { margin-inline: auto; }
 .fun .potd { grid-template-columns: 220px minmax(0, 1fr); gap: var(--sp-5); }
-.fun .horo__signs { max-width: 760px; }
-.fun .beef-form, .fun .excuse-form, .fun .rot-form { max-width: 760px; }
+.fun .horo__signs { max-width: none; }
+.fun .beef-form, .fun .excuse-form, .fun .rot-form { max-width: none; }
 
 /* Soundboard section: left-aligned header like every other section, content centered under it */
 .soundboard-wrap.section { max-width: none; padding: var(--sp-7) 0 0; text-align: start; justify-items: stretch; gap: var(--sp-3); }
@@ -477,3 +477,10 @@ html { overflow-x: clip; }
 .share-menu > * { display: block; padding: 10px 14px; border: 0; border-bottom: 2px solid #eee; background: none; text-align: start; font: inherit; font-family: var(--font-ui); font-weight: 700; color: var(--ink); text-decoration: none; cursor: pointer; }
 .share-menu > *:last-child { border-bottom: 0; }
 .share-menu > *:hover, .share-menu > *:focus-visible { background: var(--mustard); }
+
+/* Zodiac grid fills the panel: 12 across on wide screens, 6 / 4 / 3 as it narrows */
+.fun .horo__signs { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .fun .horo__signs { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .fun .horo__signs { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 380px) { .fun .horo__signs { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.quest__head h3 bdi { unicode-bidi: isolate; }

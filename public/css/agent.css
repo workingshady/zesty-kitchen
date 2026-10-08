@@ -426,3 +426,16 @@
 
 /* Site toasts sit under the open chat instead of covering its header */
 .zka-open .toast.live { display: none; }
+
+/* ---------- Scrollbars: slim, on-brand, never the grey OS default ---------- */
+.zka-panel, .zka-panel * { scrollbar-width: thin; scrollbar-color: var(--ink) transparent; }
+.zka-panel ::-webkit-scrollbar { width: 8px; height: 8px; }
+.zka-panel ::-webkit-scrollbar-track { background: transparent; }
+.zka-panel ::-webkit-scrollbar-thumb { background: var(--ink); border-radius: 999px; border: 2px solid var(--cream); }
+.zka-panel ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+/* Dish carousels: swipe/scroll without a visible bar, with an edge fade hinting there's more */
+.zka-panel .zka-cards, .zka-panel [class*="carousel"] { scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 92%, transparent); mask-image: linear-gradient(90deg, #000 92%, transparent); }
+.zka-panel .zka-cards::-webkit-scrollbar, .zka-panel [class*="carousel"]::-webkit-scrollbar { display: none; }
+.zka-input { overflow-y: hidden; scrollbar-width: none; }
+.zka-input::-webkit-scrollbar { display: none; }
+.zka-bubble b { font-weight: 800; }

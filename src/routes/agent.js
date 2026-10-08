@@ -644,6 +644,7 @@ function normalizeCart(db, rawCart) {
 function cleanReply(text) {
   return String(text || "")
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/^#{1,6}\s+/gm, "")
     .trim()
     .slice(0, 1200);
 }

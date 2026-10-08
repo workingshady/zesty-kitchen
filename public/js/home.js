@@ -429,7 +429,7 @@ function renderHoroscope() {
   if (!box) return;
   const saved = store.get("zk_sign", "");
   box.innerHTML = `
-    <div class="quest__head"><h3>🔮 برجك النهارده / Your horoscope</h3><span class="quest__date">${esc(today())}</span></div>
+    <div class="quest__head"><h3>🔮 <bdi>برجك النهارده</bdi> · <bdi>Your horoscope</bdi></h3><span class="quest__date">${esc(today())}</span></div>
     <p>Pick your sign. The stars read the group chat so you don't have to.</p>
     <div class="horo__signs" role="group" aria-label="Zodiac signs">${SIGNS.map(([k, g, ar, en]) => `<button type="button" class="horo__sign ${k === saved ? "on" : ""}" data-sign="${k}" aria-pressed="${k === saved}" title="${en}"><span aria-hidden="true">${g}</span><small>${ar}</small></button>`).join("")}</div>
     <p class="quest-out" id="horo-out" aria-live="polite"></p>`;
