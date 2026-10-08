@@ -347,3 +347,35 @@ html { overflow-x: clip; }
 .quest--rot .rot-form { display: flex; gap: 8px; flex-wrap: wrap; }
 .quest--rot input { flex: 1 1 180px; min-height: 44px; padding: 0 12px; border: var(--border); border-radius: 999px; background: var(--paper); }
 .rot-out:not(:empty) { margin-top: 10px; padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--slime); font-family: var(--font-ui); font-weight: 700; box-shadow: var(--shadow-sm); }
+
+/* ---------- AI side quests: horoscope, beef or besties, excuses ---------- */
+.quest--horo { background: #f1e6ff; }
+.quest--beef { background: #ffe6ea; }
+.quest--excuse { background: #e9ffd9; }
+.horo__signs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.horo__sign { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 52px; padding: 4px 2px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); font-size: 1.25rem; cursor: pointer; box-shadow: var(--shadow-sm); }
+.horo__sign small { font-family: var(--font-ui); font-size: .68rem; white-space: nowrap; }
+.horo__sign.on { background: var(--ink); color: var(--paper); }
+.horo__sign:active { transform: translate(2px, 2px); box-shadow: none; }
+.beef-form { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; }
+.beef-form .select { width: 100%; }
+.beef-form .btn { grid-column: 1 / -1; }
+.beef-form .duel__vs { font-size: 1.4rem; }
+.excuse__opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.excuse__opts .chip span { min-height: 44px; }
+.excuse__opts .chip input:checked + span { background: var(--ink); color: var(--paper); }
+.quest--excuse .rot-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.quest--excuse input[type="text"], .quest--excuse #excuse-detail { flex: 1 1 180px; min-height: 44px; padding: 0 12px; border: var(--border); border-radius: 999px; background: var(--paper); }
+.quest-out:not(:empty) { margin: 10px 0 0; padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); font-family: var(--font-ui); font-weight: 700; box-shadow: var(--shadow-sm); overflow-wrap: anywhere; }
+.quest-out .btn { margin-top: 8px; }
+.ai-tag { font-weight: 400; color: var(--muted); white-space: nowrap; }
+.review__reply { margin: 8px 0 0 18px; padding: 8px 12px; border: 2px solid var(--ink); border-left-width: 6px; border-radius: 12px; background: #fff8d6; }
+.review__reply p { margin: 4px 0 0; }
+.review__reply-tag { font-size: .75rem; color: var(--muted); }
+.vibe p { overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .horo__signs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .excuse__opts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .beef-form { grid-template-columns: 1fr; }
+  .beef-form .duel__vs { justify-self: center; }
+}

@@ -7,6 +7,7 @@ const cookieParser = require("cookie-parser");
 const { publicRouter } = require("./routes/public");
 const { adminRouter } = require("./routes/admin");
 const { aiRouter } = require("./routes/ai");
+const { agentRouter } = require("./routes/agent");
 const { createAi } = require("./ai");
 
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
@@ -48,6 +49,7 @@ function createApp({ db, env = process.env, ai = createAi(env) }) {
   });
 
   app.use("/api/ai", aiRouter(db, ai));
+  app.use("/api/agent", agentRouter(db, ai));
   app.use("/api", publicRouter(db));
 
   if (adminEnabled) {

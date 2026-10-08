@@ -215,3 +215,125 @@ test("AI features fall back cleanly when no key is set, and pass provider text t
   assert.equal((await request(on).post("/api/ai/translate").send({ text: "" })).status, 400);
   assert.equal((await request(on).post("/api/admin/ai/bio").send({ name_ar: "x" })).status, 401);
 });
+
+test("admin AI bio fill clamps the model's output and passes a valid photo through", async () => {
+  const db = createMemoryStore();
+  const calls = [];
+  const fake = {
+    enabled: true,
+    generate: async (args) => (
+      calls.push(args),
+      JSON.stringify({ job_title: "Senior  Excel\nAbuser", description: "d", catchphrase: "c", warnings: "w", spice_level: 99, category: "not-a-slug", badges: ["toxic", "fake_badge", "popular", "new"], calories: -5, name_en: "Ahmed Mandi" })
+    ),
+  };
+  const app = createApp({ db, env, ai: fake });
+  assert.equal((await request(app).post("/api/admin/ai/bio").send({ name_ar: "x" })).status, 401);
+
+  const agent = adminAgent(app);
+  const image = { mime: "image/jpeg", data: Buffer.from("fake jpeg bytes").toString("base64") };
+  const res = await agent
+    .post("/api/admin/ai/bio")
+    .set("Content-Type", "application/vnd.zk-bio+json")
+    .send(JSON.stringify({ name_ar: "أحمد", notes: "loves Excel", category: "fatta", image }));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.spice_level, 5);
+  assert.equal(res.body.category, "fatta"); // invalid AI category falls back to the current one
+  assert.deepEqual(res.body.badges, ["toxic", "popular"]);
+  assert.equal(res.body.calories, 0);
+  assert.equal(res.body.job_title, "Senior Excel Abuser");
+  assert.equal(res.body.name_en, "Ahmed Mandi");
+  assert.equal(res.body.used_photo, true);
+  assert.deepEqual(calls[0].images, [image]);
+  assert.ok(calls[0].prompt.includes("loves Excel"));
+  assert.ok(/NEVER mention/.test(calls[0].prompt));
+
+  // Plain JSON without a photo still works, and a typed English name wins over the AI's
+  const plain = await agent.post("/api/admin/ai/bio").send({ name_en: "Sara", category: "nope" });
+  assert.equal(plain.status, 200);
+  assert.deepEqual(calls[1].images, []);
+  assert.equal(plain.body.name_en, "Sara");
+  assert.equal(plain.body.category, "picks");
+});
+
+test("admin AI bio fill rejects bad photos and missing names", async () => {
+  const db = createMemoryStore();
+  let called = 0;
+  const app = createApp({ db, env, ai: { enabled: true, generate: async () => (called++, JSON.stringify({ spice_level: 0 })) } });
+  const agent = adminAgent(app);
+  const send = (body) => agent.post("/api/admin/ai/bio").set("Content-Type", "application/vnd.zk-bio+json").send(JSON.stringify(body));
+  assert.equal((await send({ name_ar: "x", image: { mime: "image/gif", data: "AAAA" } })).status, 400);
+  assert.equal((await send({ name_ar: "x", image: { mime: "image/png", data: "not base64!!" } })).status, 400);
+  assert.equal((await send({ name_ar: "x", image: { mime: "image/png", data: "A".repeat(700 * 1024) } })).status, 400);
+  assert.equal((await send({ name_ar: "", name_en: "" })).status, 400);
+  assert.equal(called, 0);
+  const ok = await send({ name_ar: "x" });
+  assert.equal(ok.body.spice_level, 1);
+  assert.deepEqual(ok.body.badges, []);
+});
+
+test("persona language mode is weighted mix / Egyptian Arabic / English", () => {
+  const persona = require("../src/persona");
+  assert.equal(persona.pickMode(() => 0.1).key, "mix");
+  assert.equal(persona.pickMode(() => 0.5).key, "ar");
+  assert.equal(persona.pickMode(() => 0.9).key, "en");
+  assert.ok(persona.languageMode().startsWith("LANGUAGE"));
+  assert.notEqual(persona.angleFor(0), persona.angleFor(1));
+  assert.ok(persona.systemFor("roast").includes(persona.PERSONA));
+});
+
+test("new AI side quests: horoscope, duo, excuse, review reply, vibe check", async () => {
+  const db = createMemoryStore();
+  const [a, b] = await db.listDishes();
+  const calls = [];
+  const fake = { enabled: true, generate: async (args) => (calls.push(args), '"Roast: ده مش vibe، ده red flag 💀"') };
+  const on = createApp({ db, env, ai: fake });
+  const off = createApp({ db, env, ai: { enabled: false, generate: async () => null } });
+  const last = () => calls[calls.length - 1];
+
+  // Quotes and "Roast:" labels are stripped; the prompt carries a language mode and temperature
+  const roast = await request(on).post("/api/ai/roast").send({ dish_id: a.id, variant: 3 });
+  assert.equal(roast.body.text, "ده مش vibe، ده red flag 💀");
+  assert.ok(/LANGUAGE for this reply/.test(last().system));
+  assert.ok(last().prompt.includes("ANGLE"));
+  assert.ok(last().temperature > 1);
+
+  const horo = await request(on).post("/api/ai/horoscope").send({ sign: "leo" });
+  assert.equal(horo.status, 200);
+  assert.ok(last().prompt.includes("Leo"));
+  const n = calls.length;
+  await request(on).post("/api/ai/horoscope").send({ sign: "leo" }); // cached for the day
+  assert.equal(calls.length, n);
+  assert.equal((await request(on).post("/api/ai/horoscope").send({ sign: "dragon" })).status, 400);
+  assert.equal((await request(off).post("/api/ai/horoscope").send({ sign: "virgo" })).status, 503);
+
+  const duo = await request(on).post("/api/ai/duo").send({ a: a.id, b: b.id });
+  assert.equal(duo.status, 200);
+  assert.ok(last().prompt.includes(a.name_ar) && last().prompt.includes(b.name_ar));
+  assert.equal((await request(on).post("/api/ai/duo").send({ a: a.id, b: a.id })).status, 400);
+  assert.equal((await request(on).post("/api/ai/duo").send({ a: a.id, b: "nope" })).status, 404);
+
+  const ex = await request(on).post("/api/ai/excuse").send({ situation: "late", detail: "the 9am standup" });
+  assert.equal(ex.status, 200);
+  assert.ok(last().prompt.includes("9am standup"));
+  assert.equal((await request(on).post("/api/ai/excuse").send({ situation: "murder" })).status, 400);
+  assert.equal((await request(on).post("/api/ai/excuse").send({ situation: "task", detail: "x".repeat(101) })).status, 400);
+
+  const review = await db.createReview({ dish_id: a.id, author_name: "Hater", chili_rating: 1, awkward_rating: 5, body: "too salty fr" });
+  const reply = await request(on).post("/api/ai/review-reply").send({ dish_id: a.id, review_id: review.id });
+  assert.equal(reply.status, 200);
+  assert.ok(last().prompt.includes("too salty fr"));
+  assert.equal((await request(on).post("/api/ai/review-reply").send({ dish_id: b.id, review_id: review.id })).status, 404);
+  const fresh = await db.createReview({ dish_id: a.id, author_name: "Fan", chili_rating: 5, awkward_rating: 1, body: "W" });
+  assert.equal((await request(off).post("/api/ai/review-reply").send({ dish_id: a.id, review_id: fresh.id })).status, 503);
+
+  // Vibe check: no photo -> 400 fallback; with a photo the bytes go to the model as an image
+  const on2 = createApp({ db, env, ai: fake }); // fresh rate-limit window (12/min per app)
+  assert.equal((await request(on2).post("/api/ai/vibe-check").send({ dish_id: a.id })).status, 400);
+  await db.uploadPhoto("dishes/a.png", Buffer.from("png bytes"), "image/png");
+  await db.updateDish(a.id, { photo_path: "dishes/a.png" });
+  const vibe = await request(on2).post("/api/ai/vibe-check").send({ dish_id: a.id });
+  assert.equal(vibe.status, 200);
+  assert.deepEqual(last().images, [{ mime: "image/png", data: Buffer.from("png bytes").toString("base64") }]);
+  assert.ok(/NEVER comment on body/.test(last().prompt));
+  assert.equal((await request(off).post("/api/ai/vibe-check").send({ dish_id: a.id })).status, 503);
+});

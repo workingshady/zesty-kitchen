@@ -811,6 +811,8 @@ export function initCommon() {
   idleDvd();
   liveOrders();
   easterEggs();
+  // Chat waiter: lazy so it never slows the first paint
+  import("./agent.js").then((m) => m.mountAgent()).catch(() => {});
 }
 
 export const chefHtml = `

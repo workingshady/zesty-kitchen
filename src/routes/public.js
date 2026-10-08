@@ -3,6 +3,7 @@ const rateLimit = require("express-rate-limit");
 const menu = require("../menu");
 const { cleanText } = require("../filter");
 const v = require("../validate");
+const { createOrder } = require("../orders");
 
 const limiter = (windowMin, limit) =>
   rateLimit({
@@ -105,33 +106,7 @@ function publicRouter(db) {
   });
 
   router.post("/orders", limiter(10, 5), async (req, res) => {
-    const b = req.body || {};
-    if (!Array.isArray(b.items) || b.items.length < 1 || b.items.length > 10) {
-      throw v.bad("skill issue: cart must have 1–10 items");
-    }
-    const items = [];
-    for (const raw of b.items) {
-      const dish = await db.getDish(String(raw?.dish_id)).catch(() => null);
-      if (!dish || !dish.is_visible) throw v.bad("skill issue: one of those dishes doesn't exist (anymore)");
-      const size = v.oneOf(raw.size, "size", Object.keys(menu.SIZES));
-      const addons = Array.isArray(raw.addons) ? [...new Set(raw.addons)] : [];
-      addons.forEach((a) => v.oneOf(a, "add-on", Object.keys(menu.ADDONS)));
-      if (addons.some((a) => !menu.ADDONS[a].available)) throw v.bad("بدون دراما is not available. It never was. 💀");
-      const qty = v.int(raw.qty, "quantity", 1, 9);
-      items.push({ dish_id: dish.id, name_ar: dish.name_ar, name_en: dish.name_en, size, addons, qty, unit_price: menu.linePrice(dish.price, size, addons) });
-    }
-    const subtotal = menu.round2(items.reduce((s, i) => s + i.unit_price * i.qty, 0));
-    const { fees, total } = menu.computeFees(subtotal);
-    const order = await db.createOrder({
-      customer_name: cleanText(v.text(b.customer_name, "name", { max: 40 })),
-      items,
-      subtotal,
-      fees,
-      total,
-      payment_method: v.oneOf(b.payment_method, "payment method", menu.PAYMENT_METHODS),
-      note: b.note ? cleanText(v.text(b.note, "note", { min: 0, max: 200 })) : null,
-    });
-    res.status(201).json({ order_number: order.order_number, items, subtotal, fees, total });
+    res.status(201).json(await createOrder(db, req.body || {}));
   });
 
   router.get("/leaderboard", async (req, res) => {
@@ -141,4 +116,4 @@ function publicRouter(db) {
   return router;
 }
 
-module.exports = { publicRouter };
+module.exports = { publicRouter, leaderboard, publicDish };

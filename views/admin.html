@@ -47,6 +47,11 @@
           <h2>Dishes</h2>
           <button class="btn" id="new-dish" title="Shortcut: n">+ New dish</button>
         </div>
+        <div class="draft-chip" id="draft-chip" hidden>
+          <span>📝 You have an unfinished dish<span id="draft-chip-name"></span></span>
+          <button class="btn small" type="button" id="draft-continue">Continue</button>
+          <button class="btn small ghost" type="button" id="draft-chip-discard">Discard</button>
+        </div>
         <div class="toolbar">
           <input type="search" id="dish-search" placeholder="Search name, job title… ( / )" aria-label="Search dishes" dir="auto">
           <select id="dish-cat" aria-label="Category"><option value="">All categories</option></select>
@@ -110,6 +115,18 @@
   <dialog id="dish-dialog">
     <form id="dish-form" method="dialog">
       <h2 id="dish-dialog-title">Dish</h2>
+      <div class="draft-banner" id="draft-banner" role="status" hidden>
+        <span id="draft-banner-text">📝 Restored your unsaved draft</span>
+        <button class="btn small ghost" type="button" id="draft-discard">Discard</button>
+      </div>
+      <div class="fill-bar">
+        <span class="fill-title">Fill it for me:</span>
+        <button class="btn ghost small" type="button" id="dish-example" title="Random funny example, no AI needed">🎲 Predefined (instant)</button>
+        <button class="btn small" type="button" id="dish-ai" title="Sends the photo + name + whatever you typed to the AI">✨ AI fill (photo + info)</button>
+        <label class="inline fill-mode" title="Off: only empty fields get filled"><input type="checkbox" id="fill-overwrite"> Overwrite everything</label>
+        <button class="btn ghost small" type="button" id="dish-undo-fill" hidden>↩️ Undo fill</button>
+        <small class="hint fill-hint" id="fill-hint">Fills only empty fields. Tick "Overwrite everything" to replace what you typed.</small>
+      </div>
       <div class="photo-row">
         <div class="preview" id="photo-preview">🍽️</div>
         <label class="grow">📸 Photo (any shape, it gets cropped square) <input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/gif"></label>
@@ -136,7 +153,7 @@
       </fieldset>
       <div class="row-between">
         <label class="inline"><input type="checkbox" name="is_visible" checked> Visible on menu</label>
-        <span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" type="button" id="dish-example">🎲 Fill funny example</button><button class="btn small" type="button" id="dish-ai" title="Uses the description box as notes about the person">✨ AI write it</button></span>
+        <small class="hint">Ctrl/⌘ + S saves</small>
       </div>
       <p class="error" id="dish-error" role="alert"></p>
       <div class="row-between">
@@ -144,6 +161,16 @@
         <button class="btn" type="submit" id="dish-save">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="close-dialog" class="small-dialog">
+    <h3>Unsaved changes 🫠</h3>
+    <p>This dish isn't saved yet. Keep it as a draft for later, or throw it away?</p>
+    <div class="btn-group">
+      <button class="btn" type="button" id="close-keep">📝 Keep draft</button>
+      <button class="btn danger" type="button" id="close-discard">🗑️ Discard</button>
+      <button class="btn ghost" type="button" id="close-back">Back to editing</button>
+    </div>
   </dialog>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>

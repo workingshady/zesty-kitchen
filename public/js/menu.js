@@ -2,7 +2,7 @@ import {
   $, $$, api, esc, egp, toast, play, say, calm, isTouch, pick, getConfig, getDishes, initCommon, chefHtml, toggleUnc, fitImg, CLIPS, soundOn,
   getCart, saveCart, addToCart, cartCount, linePrice, totalsHtml, avatarHtml,
 } from "./common.js";
-import { initHome, dishTools } from "./home.js";
+import { initHome, dishTools, replyToReview } from "./home.js";
 
 const REVIEWER_BADGES = ["Verified Eater ✅", "Top 1% Complainer", "Ate Here Once In 2019", "Certified Hater", "Aura Farmer 🌾", "NPC Reviewer 🤖", "Delulu Foodie", "Sigma Snacker", "Unc 👴", "Glazer 🍩"];
 const PLATE_EMOJI = { mandi: "🍚", grills: "🍢", shawarma: "🌯", seafood: "🦐", fatta: "🥣", sandwiches: "🥪", appetizers: "🥗", trays: "🫕", soups: "🍲", desserts: "🍰", expired: "🦴", picks: "🍽️", ful: "🫘", koshary: "🍝", taameya: "🧆", mahshi: "🫑", molokhia: "🥬", basbousa: "🍯", bread: "🥖", asab: "🧃", torshi: "🌶️" };
@@ -128,6 +128,7 @@ async function openDish(id) {
           <button class="btn sky" type="button" id="scan-aura">📸 Scan aura</button>
           <button class="btn pink" type="button" id="slap" aria-expanded="false">🫵 Stickers</button>
           <button class="btn white" type="button" id="roast">🎤 Roast</button>
+          ${d.photo_url ? `<button class="btn" type="button" id="vibe-check">🔍 Vibe check</button>` : ""}
         </div>
         <div class="photo-extras" id="photo-extras" aria-live="polite"></div>
       </div>
@@ -212,6 +213,7 @@ async function openDish(id) {
   );
   $("#review-form").addEventListener("submit", (e) => postReview(e, d.id));
   $("#review-list").addEventListener("click", onReviewClick);
+  $("#review-list").addEventListener("click", (e) => replyToReview(e, d));
 }
 
 function countUp(el, target) {
@@ -238,7 +240,7 @@ function reviewHtml(r) {
       <div class="review__head"><strong dir="auto">${esc(r.author_name)}</strong><span class="review__badge">${REVIEWER_BADGES[hash(r.author_name) % REVIEWER_BADGES.length]}</span>
         <span>${"🌶️".repeat(r.chili_rating)}</span><span class="aura">aura ${aura(r.chili_rating)}</span><small>😬 ${r.awkward_rating}/5</small></div>
       <p dir="auto">${esc(r.body)}</p>
-      <div class="review__foot">${reacts}<button class="voice" type="button" data-say="${esc(r.body)}">▶️ voice note</button></div>
+      <div class="review__foot">${reacts}<button class="voice" type="button" data-say="${esc(r.body)}">▶️ voice note</button><button class="voice" type="button" data-reply="${esc(r.id)}">💬 Let them reply</button></div>
     </article>`;
 }
 

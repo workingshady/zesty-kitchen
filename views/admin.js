@@ -13,7 +13,7 @@ let orderRange = "all";
 async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
-    headers: options.body instanceof FormData ? {} : { "Content-Type": "application/json" },
+    headers: options.body instanceof FormData ? {} : { "Content-Type": options.contentType || "application/json" },
     credentials: "same-origin",
   });
   const data = await res.json().catch(() => ({}));
@@ -239,6 +239,7 @@ function renderDishes() {
       ? `<li class="state">No dishes match these filters. <button class="btn small ghost" id="clear-dish-filters">Clear filters</button></li>`
       : `<li class="state">No dishes yet. Press <b>+ New dish</b> to hire your first coworker.</li>`);
   syncDishBulk(rows);
+  syncDraftChip();
 }
 
 function syncDishBulk(rows = visibleDishRows()) {
@@ -377,28 +378,156 @@ $("#dish-list").addEventListener("dragend", async () => {
   }
 });
 
-function openDish(dish) {
+// ---- Dish editor: form state, drafts, fills ----
+const TEXT_FIELDS = ["name_ar", "name_en", "job_title", "category", "description", "catchphrase", "warnings", "price", "spice_level", "calories"];
+const FILL_FIELDS = ["name_en", "job_title", "description", "catchphrase", "warnings", "spice_level", "category", "calories", "badges"];
+const DRAFT_PREFIX = "zk_admin_draft_";
+const DRAFT_PHOTO_MAX = 1.5 * 1024 * 1024; // data URL chars
+const AI_PHOTO_MAX = 350 * 1024; // base64 chars
+
+let baseline = ""; // form state when the dialog opened (to detect unsaved changes)
+let photo = null; // { upload: Blob|File, small: Blob, dataUrl: string|null } for a newly picked or restored photo
+let lastFill = null; // { prev: formState, keys: [] } for "Undo fill"
+let saveTimer = null;
+let photoJob = Promise.resolve();
+
+const store = {
+  get(key) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  remove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* storage blocked: nothing to remove */
+    }
+  },
+};
+const draftKey = () => `${DRAFT_PREFIX}${editing ? editing.id : "new"}`;
+
+function readForm() {
+  const f = $("#dish-form");
+  const state = Object.fromEntries(TEXT_FIELDS.map((k) => [k, f[k].value]));
+  state.badges = [...f.querySelectorAll("[name=badges]:checked")].map((cb) => cb.value);
+  state.is_visible = f.is_visible.checked;
+  return state;
+}
+
+function writeForm(state) {
+  const f = $("#dish-form");
+  for (const k of TEXT_FIELDS) if (k in state && f[k]) f[k].value = state[k] ?? "";
+  if (Array.isArray(state.badges)) f.querySelectorAll("[name=badges]").forEach((cb) => (cb.checked = state.badges.includes(cb.value)));
+  if ("is_visible" in state) f.is_visible.checked = Boolean(state.is_visible);
+  updateCounters();
+}
+
+const isDirty = () => Boolean(photo) || JSON.stringify(readForm()) !== baseline;
+
+function ago(ts) {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
+}
+
+function saveDraftNow() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (!$("#dish-dialog").open) return;
+  if (!isDirty()) return store.remove(draftKey());
+  const draft = { v: 1, saved_at: Date.now(), dish_id: editing?.id || null, form: readForm(), photo: photo?.dataUrl || null };
+  if (!store.set(draftKey(), draft) && draft.photo) store.set(draftKey(), { ...draft, photo: null }); // quota: keep the text at least
+}
+const scheduleDraft = () => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveDraftNow, 400);
+};
+const clearDraft = () => {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  store.remove(draftKey());
+};
+
+function dataUrlToBlob(url) {
+  const [head, b64] = url.split(",");
+  const mime = /data:([^;]+)/.exec(head)?.[1] || "image/jpeg";
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+const blobToDataUrl = (blob) =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+
+function openDish(dish, { skipDraft = false } = {}) {
   editing = dish || null;
   const f = $("#dish-form");
   f.reset();
+  photo = null;
+  lastFill = null;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  markFilled([]);
+  $("#dish-undo-fill").hidden = true;
   $("#dish-error").textContent = "";
+  $("#draft-banner").hidden = true;
   $("#dish-dialog-title").textContent = dish ? `Edit ${dishName(dish)}` : "New dish";
   if (dish) {
-    f.name_ar.value = dish.name_ar;
-    f.name_en.value = dish.name_en || "";
-    f.description.value = dish.description || "";
-    f.price.value = dish.price;
-    f.job_title.value = dish.job_title || "";
-    f.catchphrase.value = dish.catchphrase || "";
-    f.warnings.value = dish.warnings || "";
-    f.spice_level.value = dish.spice_level ?? 3;
-    f.calories.value = dish.calories || "";
-    f.category.value = dish.category;
-    f.is_visible.checked = dish.is_visible;
+    writeForm({
+      name_ar: dish.name_ar,
+      name_en: dish.name_en || "",
+      description: dish.description || "",
+      price: dish.price,
+      job_title: dish.job_title || "",
+      catchphrase: dish.catchphrase || "",
+      warnings: dish.warnings || "",
+      spice_level: dish.spice_level ?? 3,
+      calories: dish.calories || "",
+      category: dish.category,
+      is_visible: dish.is_visible,
+    });
   }
   f.querySelectorAll("[name=badges]").forEach((cb) => (cb.checked = dish ? (dish.badges || []).includes(cb.value) : false));
+  updateCounters();
+  baseline = JSON.stringify(readForm());
   setPreview(dish?.photo_url || null);
-  $("#dish-dialog").showModal();
+
+  const draft = skipDraft ? null : store.get(draftKey());
+  if (draft?.form) {
+    writeForm(draft.form);
+    if (draft.photo) {
+      try {
+        const blob = dataUrlToBlob(draft.photo);
+        photo = { upload: blob, small: blob, dataUrl: draft.photo };
+        setPreview(draft.photo);
+      } catch {
+        photo = null;
+      }
+    }
+    $("#draft-banner-text").textContent = `📝 Restored your unsaved draft (saved ${ago(draft.saved_at || Date.now())})`;
+    $("#draft-banner").hidden = false;
+  }
+  if (!$("#dish-dialog").open) $("#dish-dialog").showModal();
 }
 
 $("#new-dish").addEventListener("click", () => openDish(null));
@@ -408,40 +537,276 @@ function setPreview(url) {
 }
 $("#dish-form").photo.addEventListener("change", (e) => {
   const file = e.target.files[0];
-  if (file) setPreview(URL.createObjectURL(file));
+  if (!file) return;
+  setPreview(URL.createObjectURL(file));
+  // Small copy for the draft and the AI; the full file is still what gets uploaded
+  photoJob = (async () => {
+    const small = await shrink(file, 768, 0.82);
+    let dataUrl = null;
+    try {
+      dataUrl = await blobToDataUrl(small);
+      if (dataUrl.length > DRAFT_PHOTO_MAX) dataUrl = null;
+    } catch {
+      dataUrl = null;
+    }
+    photo = { upload: file, small, dataUrl };
+    scheduleDraft();
+  })();
 });
 
+$("#dish-form").addEventListener("input", (e) => {
+  if (e.target.name && e.target.name !== "photo") e.target.closest(".filled")?.classList.remove("filled");
+  updateCounters();
+  scheduleDraft();
+});
+$("#dish-form").addEventListener("change", scheduleDraft);
+
+$("#draft-discard").addEventListener("click", () => {
+  clearDraft();
+  openDish(editing, { skipDraft: true });
+  toast("Draft thrown away 🗑️");
+});
+
+// ---- Closing with unsaved changes ----
+function closeDish() {
+  $("#dish-dialog").close();
+  syncDraftChip();
+}
+function requestClose() {
+  if ($("#close-dialog").open) return;
+  if (!isDirty()) {
+    clearDraft();
+    return closeDish();
+  }
+  $("#close-dialog").showModal();
+}
+$("#dish-cancel").addEventListener("click", requestClose);
+$("#dish-dialog").addEventListener("cancel", (e) => {
+  e.preventDefault();
+  requestClose();
+});
+$("#close-keep").addEventListener("click", () => {
+  saveDraftNow();
+  $("#close-dialog").close();
+  closeDish();
+  toast("Draft kept 📝 it'll be here when you come back");
+});
+$("#close-discard").addEventListener("click", () => {
+  clearDraft();
+  $("#close-dialog").close();
+  closeDish();
+});
+$("#close-back").addEventListener("click", () => $("#close-dialog").close());
+window.addEventListener("pagehide", () => saveTimer && saveDraftNow());
+
+// "You have an unfinished dish" chip on the Dishes tab
+function syncDraftChip() {
+  const draft = store.get(`${DRAFT_PREFIX}new`);
+  const show = Boolean(draft?.form) && !($("#dish-dialog").open && !editing);
+  $("#draft-chip").hidden = !show;
+  if (show) {
+    const name = draft.form.name_ar || draft.form.name_en;
+    $("#draft-chip-name").textContent = `${name ? `: "${name}"` : ""} (saved ${ago(draft.saved_at || Date.now())})`;
+  }
+}
+$("#draft-continue").addEventListener("click", () => openDish(null));
+$("#draft-chip-discard").addEventListener("click", () => {
+  store.remove(`${DRAFT_PREFIX}new`);
+  syncDraftChip();
+  toast("Draft thrown away 🗑️");
+});
+
+// ---- Character counters ----
+function updateCounters() {
+  $$("#dish-form [data-counter]").forEach((el) => {
+    const input = $(`#dish-form [name=${el.dataset.counter}]`);
+    const n = input.value.length;
+    const max = Number(input.maxLength);
+    el.textContent = `${n}/${max}`;
+    el.classList.toggle("near", n >= max * 0.9);
+  });
+}
+$$("#dish-form input[maxlength], #dish-form textarea[maxlength]").forEach((input) => {
+  const counter = document.createElement("small");
+  counter.className = "counter";
+  counter.dataset.counter = input.name;
+  input.after(counter);
+});
+
+// ---- Fills (predefined + AI) ----
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+// lang: ar = Egyptian Arabic, en = English, mix = Gen-Z code-switching
 const EXAMPLES = [
-  { job_title: "Senior Excel Abuser", catchphrase: "خليها بعد الاجتماع", warnings: "passive aggression, 3 coffees, unread emails", description: "Slow-cooked since the 9am standup. يسطا ده aura +1000.", spice_level: 4 },
-  { job_title: "Chief Meeting Officer", catchphrase: "let's take this offline", warnings: "calendar invites, no agenda", description: "Could've been an email. Comes with extra slides.", spice_level: 2 },
-  { job_title: "Intern (unpaid, vibes only)", catchphrase: "أنا مش فاهم حاجة", warnings: "anxiety, energy drinks", description: "Fresh, eager, slightly undercooked. Will make you coffee.", spice_level: 1 },
-  { job_title: "Head of Gossip ☕", catchphrase: "بيقولك…", warnings: "tea, more tea, screenshots", description: "Soaked in gossip. Knows everyone's salary.", spice_level: 5 },
-  { job_title: "IT guy who never answers", catchphrase: "did you try restarting it?", warnings: "cables, silence", description: "Grilled on low heat. Replies in 3–5 business days.", spice_level: 3 },
+  { lang: "mix", job_title: "Senior Excel Abuser", catchphrase: "خليها بعد الاجتماع", warnings: "passive aggression, 3 coffees, unread emails", description: "Slow-cooked since the 9am standup. يسطا ده aura +1000.", spice_level: 4, category: "mandi", badges: ["overworked"] },
+  { lang: "en", job_title: "Chief Meeting Officer", catchphrase: "let's take this offline", warnings: "calendar invites, no agenda", description: "Could've been an email. Comes with extra slides and zero decisions.", spice_level: 2, category: "koshary", badges: ["main_character"] },
+  { lang: "mix", job_title: "Intern (unpaid, vibes only)", catchphrase: "أنا مش فاهم حاجة", warnings: "anxiety, energy drinks", description: "Fresh, eager, slightly undercooked. Will make you coffee بس مش هيعرف يعمله.", spice_level: 1, category: "appetizers", badges: ["new"] },
+  { lang: "mix", job_title: "Head of Gossip ☕", catchphrase: "بيقولك…", warnings: "tea, more tea, screenshots", description: "Soaked in gossip. Knows everyone's salary والمرتب بتاعك كمان.", spice_level: 5, category: "fatta", badges: ["toxic", "popular"] },
+  { lang: "en", job_title: "IT guy who never answers", catchphrase: "did you try restarting it?", warnings: "cables, silence, one ticket from 2019", description: "Grilled on low heat. Replies in 3–5 business days.", spice_level: 3, category: "grills", badges: ["on_vacation"] },
+  { lang: "ar", job_title: "مدير الإيميلات الطويلة", catchphrase: "زي ما اتفقنا في الإيميل اللي فات", warnings: "CC للمدير، ريبلاي أول", description: "محشي بـ ١٤ فقرة وجملة واحدة مفيدة في الآخر. كُل على مهلك.", spice_level: 3, category: "mahshi", badges: ["red_flag"] },
+  { lang: "ar", job_title: "أخصائي البريك الطويل", catchphrase: "نازل أجيب شاي وراجع", warnings: "شاي بالنعناع، غياب، أعذار", description: "رايق جدًا. بيتعمل على نار هادية من الصبح ومبيخلصش.", spice_level: 1, category: "asab", badges: ["on_vacation"] },
+  { lang: "mix", job_title: "Deadline Survivor", catchphrase: "هخلصها النهارده بالليل والله", warnings: "all-nighters, Red Bull, panic", description: "Slimy under pressure بس بيسلّم في آخر ثانية. Molokhia energy.", spice_level: 4, category: "molokhia", badges: ["overworked", "chefs_pick"] },
+  { lang: "en", job_title: "LinkedIn Thought Leader", catchphrase: "Agree? 👇", warnings: "humblebrag, hustle culture, carousel posts", description: "Marinated in motivational quotes. Shares a lesson from every coffee.", spice_level: 2, category: "picks", badges: ["main_character"] },
+  { lang: "mix", job_title: "Professional Mute Button", catchphrase: "you're on mute يا باشا", warnings: "lag, frozen camera, 'can you hear me'", description: "Joins every call 7 minutes late. Audio sold separately.", spice_level: 2, category: "soups", badges: ["sold_out"] },
+  { lang: "ar", job_title: "مسؤول الهبد الرسمي", catchphrase: "أنا قلتلكم من الأول", warnings: "ثقة زيادة، معلومات غلط", description: "طعمية سخنة من الفريزر. رأي في كل حاجة ومعلومة في ولا حاجة.", spice_level: 4, category: "taameya", badges: ["red_flag", "popular"] },
+  { lang: "en", job_title: "Budget Gatekeeper", catchphrase: "we don't have budget for that", warnings: "spreadsheets, denial, invoice anxiety", description: "Cheap, essential and somehow always in the queue at finance.", spice_level: 3, category: "bread", badges: ["hr_approved"] },
+  { lang: "mix", job_title: "Glazing Specialist 🍯", catchphrase: "حضرتك عندك حق طبعًا", warnings: "extra sugar, nodding, 'great point'", description: "Overly sweet في الاجتماعات. Glazing the boss since onboarding.", spice_level: 1, category: "basbousa", badges: ["chefs_pick"] },
+  { lang: "ar", job_title: "صاحب العزومة اللي محدش طلبها", catchphrase: "يلا كلنا على حسابي… الشهر الجاي", warnings: "وعود، فواتير، كرم مزيف", description: "صينية كبيرة للتيم كله بس الحساب مفتوح من ٢٠٢٢.", spice_level: 2, category: "trays", badges: ["popular"] },
+  { lang: "en", job_title: "Reply-All Enthusiast", catchphrase: "Adding the whole company for visibility", warnings: "inbox flood, 400 recipients, 'thanks!'", description: "Served by the kilo. Every message comes with 399 side dishes.", spice_level: 5, category: "seafood", badges: ["toxic"] },
+  { lang: "mix", job_title: "Morning Person (fake)", catchphrase: "متكلمنيش قبل القهوة التالتة", warnings: "beans, silence, death stare", description: "Useless before 10am. بعد كده? still useless بس بيضحك.", spice_level: 3, category: "ful", badges: ["overworked"] },
+  { lang: "ar", job_title: "خبير الشاورما التنظيمية", catchphrase: "الموضوع ده محتاج اجتماع", warnings: "دراما ملفوفة، تومية زيادة", description: "ملفوف في الدراما ومتشوي على السيخ في كل ون تو ون.", spice_level: 4, category: "shawarma", badges: ["toxic", "main_character"] },
+  { lang: "en", job_title: "Professional Overthinker", catchphrase: "quick question (it's not quick)", warnings: "17 follow-ups, 'just checking'", description: "Squished between two meetings and still asking for a third.", spice_level: 2, category: "sandwiches", badges: ["new"] },
+  { lang: "mix", job_title: "Ex-Employee, still in the group chat", catchphrase: "أنا مشيت بس لسه بتابع 👀", warnings: "nostalgia, expired badge, unsolicited advice", description: "Left the company. Still reacts to every message. Past the sell-by date.", spice_level: 3, category: "expired", badges: ["red_flag"] },
+  { lang: "ar", job_title: "ملك الأعذار", catchphrase: "النت فصل عندي فجأة", warnings: "زحمة، كهربا، نت ضعيف", description: "شوربة خفيفة، مية أكتر من الخضار. بيظهر وقت المرتب بس.", spice_level: 1, category: "soups", badges: ["on_vacation", "sold_out"] },
+  { lang: "mix", job_title: "Spicy Feedback Dealer", catchphrase: "with all due respect… لا", warnings: "honesty, side-eye, HR tickets", description: "Small dose only. Heavy dose = إنذار كتابي. Torshi with a performance review.", spice_level: 5, category: "torshi", badges: ["spicy", "toxic"] },
+  { lang: "en", job_title: "Vibe Coder (prod is down)", catchphrase: "works on my machine", warnings: "untested code, 3am deploys, AI copium", description: "Hot takes fried daily. Ships fast, breaks faster, blames the cache.", spice_level: 4, category: "taameya", badges: ["spicy", "main_character"] },
+  { lang: "mix", job_title: "Team Mom 🫶", catchphrase: "كلتوا ولا لسه؟", warnings: "snacks, birthday cards, guilt trips", description: "The sweet one (rare). Brings cake و بتعرف أعياد ميلاد الكل.", spice_level: 1, category: "desserts", badges: ["hr_approved", "chefs_pick"] },
+  { lang: "ar", job_title: "رئيس قسم الكوبيات", catchphrase: "مين أخد المج بتاعي؟", warnings: "كوبيات مش مغسولة، تحقيقات", description: "كشري الاجتماعات: شوية من كله ومفيش نقطة واضحة وساعتين.", spice_level: 3, category: "koshary", badges: ["popular"] },
+  { lang: "mix", job_title: "Aura Farmer", catchphrase: "it's giving promotion يا جدعان", warnings: "rizz, CV updates, mirror selfies at the office", description: "Main character energy, NPC output. Grilled to a confident medium-rare.", spice_level: 4, category: "grills", badges: ["main_character", "popular"] },
 ];
+let recentExamples = [];
+
+// Random language style (some Arabic, some English, mostly mixed), a base example and a few swapped lines
+function randomExample() {
+  const lang = pick(["ar", "en", "mix", "mix"]);
+  const pool = EXAMPLES.map((ex, i) => ({ ex, i })).filter(({ ex, i }) => ex.lang === lang && !recentExamples.includes(i));
+  const { ex: base, i } = pick(pool.length ? pool : EXAMPLES.map((ex, i) => ({ ex, i })));
+  recentExamples = [i, ...recentExamples].slice(0, 8);
+  const out = { ...base, badges: [...base.badges] };
+  const others = EXAMPLES.filter((e) => e !== base && (Math.random() < 0.5 || e.lang === base.lang));
+  if (Math.random() < 0.4) out.catchphrase = pick(others).catchphrase;
+  if (Math.random() < 0.4) out.warnings = pick(others).warnings;
+  if (Math.random() < 0.3) out.spice_level = Math.min(5, Math.max(1, out.spice_level + pick([-1, 1])));
+  out.calories = pick([67, 420, 999, 1337, 2026, 6767, 404, 9000, 0]) || Math.floor(Math.random() * 5000) + 1;
+  delete out.lang;
+  return out;
+}
+
+const overwriteAll = () => $("#fill-overwrite").checked;
+
+// "Empty" = nothing typed (spice/category count as empty while still at the value the dialog opened with)
+function isEmptyField(key, state) {
+  const start = JSON.parse(baseline || "{}");
+  if (key === "badges") return !state.badges.length;
+  if (key === "calories") return !state.calories || Number(state.calories) === 0;
+  if (key === "spice_level" || key === "category") return !state[key] || (!editing && state[key] === start[key]);
+  return !String(state[key] ?? "").trim();
+}
+
+function markFilled(keys, prev = {}) {
+  const f = $("#dish-form");
+  $$("#dish-form .filled").forEach((el) => {
+    el.classList.remove("filled");
+    el.removeAttribute("title");
+  });
+  for (const k of keys) {
+    const el = k === "badges" ? $("#badge-boxes").closest("fieldset") : f[k]?.closest("label");
+    if (!el) continue;
+    el.classList.add("filled");
+    const was = k === "badges" ? (prev.badges || []).join(", ") : prev[k];
+    el.title = `Filled. Was: ${String(was ?? "").trim() || "(empty)"}`;
+  }
+}
+
+function applyFill(data, source) {
+  const prev = readForm();
+  const next = {};
+  const keys = [];
+  for (const k of FILL_FIELDS) {
+    const val = data[k];
+    if (val === undefined || val === null || val === "" || (Array.isArray(val) && !val.length)) continue;
+    if (k === "category" && !config.categories.some((c) => c.slug === val)) continue;
+    if (!overwriteAll() && !isEmptyField(k, prev)) continue;
+    const same = k === "badges" ? JSON.stringify([...val].sort()) === JSON.stringify([...prev.badges].sort()) : String(prev[k]) === String(val);
+    if (same) continue;
+    next[k] = k === "badges" ? val.filter((b) => b in config.badges).slice(0, 2) : String(val);
+    keys.push(k);
+  }
+  if (!keys.length) {
+    toast(overwriteAll() ? "Nothing new to fill 🤷" : `All fields already have something. Tick "Overwrite everything" to replace them.`);
+    return;
+  }
+  writeForm(next);
+  lastFill = { prev, keys };
+  markFilled(keys, prev);
+  $("#dish-undo-fill").hidden = false;
+  scheduleDraft();
+  toast(`${source} filled ${keys.length} field${keys.length > 1 ? "s" : ""} (highlighted). Check and Save 🫡`);
+}
+
+$("#dish-undo-fill").addEventListener("click", () => {
+  if (!lastFill) return;
+  writeForm(lastFill.prev);
+  markFilled([]);
+  lastFill = null;
+  $("#dish-undo-fill").hidden = true;
+  scheduleDraft();
+  toast("Fill undone ↩️");
+});
+
+$("#fill-overwrite").addEventListener("change", (e) => {
+  $("#fill-hint").textContent = e.target.checked ? "Replaces every field it can, even what you typed. Undo is there if you regret it." : `Fills only empty fields. Tick "Overwrite everything" to replace what you typed.`;
+});
+
+$("#dish-example").addEventListener("click", () => applyFill(randomExample(), "🎲 Predefined"));
+
+// The photo the AI should look at: the newly picked one, or the dish's current photo
+async function photoForAi() {
+  await photoJob;
+  let blob = photo?.small || null;
+  if (!blob && editing?.photo_url) {
+    try {
+      const res = await fetch(editing.photo_url, { credentials: "same-origin" });
+      if (res.ok) blob = await res.blob();
+    } catch {
+      blob = null; // other origin (blocked by CSP/CORS): go without the photo
+    }
+  }
+  if (!blob) return null;
+  for (const [max, q] of [[768, 0.8], [640, 0.7], [512, 0.6], [384, 0.5]]) {
+    const small = await shrink(blob, max, q);
+    if (!/^image\/(jpeg|png|webp)$/.test(small.type)) return null;
+    const url = await blobToDataUrl(small);
+    const data = url.slice(url.indexOf(",") + 1);
+    if (data.length <= AI_PHOTO_MAX) return { mime: small.type, data };
+  }
+  return null;
+}
+
 $("#dish-ai").addEventListener("click", async (e) => {
   const f = $("#dish-form");
   const btn = e.currentTarget;
-  if (!f.name_ar.value.trim() && !f.name_en.value.trim()) return toast("Type a name first", { type: "error" });
+  if (!f.name_ar.value.trim() && !f.name_en.value.trim()) {
+    f.name_ar.focus();
+    return toast("Type a name first (Arabic or English)", { type: "error" });
+  }
   btn.disabled = true;
   btn.textContent = "✨ Cooking…";
   try {
-    const out = await api("/api/admin/ai/bio", { method: "POST", body: JSON.stringify({ name_ar: f.name_ar.value, name_en: f.name_en.value, notes: f.description.value }) });
-    for (const k of ["job_title", "description", "catchphrase", "warnings", "spice_level"]) if (out[k]) f[k].value = out[k];
-    toast("AI wrote it. Check and Save 🫡");
+    const image = await photoForAi();
+    const notes = [
+      f.job_title.value.trim() && `Job: ${f.job_title.value.trim()}`,
+      f.description.value.trim() && `About: ${f.description.value.trim()}`,
+      f.catchphrase.value.trim() && `Catchphrase: ${f.catchphrase.value.trim()}`,
+      f.warnings.value.trim() && `Warnings: ${f.warnings.value.trim()}`,
+    ]
+      .filter(Boolean)
+      .join(". ")
+      .slice(0, 600);
+    const out = await api("/api/admin/ai/bio", {
+      method: "POST",
+      contentType: "application/vnd.zk-bio+json",
+      body: JSON.stringify({ name_ar: f.name_ar.value, name_en: f.name_en.value, notes, category: f.category.value, image }),
+    });
+    applyFill(out, out.used_photo ? "✨ AI (looked at the photo)" : "✨ AI");
   } catch (err) {
-    toast(err.message, { type: "error" });
+    if (err.status === 401) return showLogin();
+    const msg = err.status === 503 ? "✨ AI is off right now (no API key set). Use 🎲 Predefined instead." : err.message;
+    toast(msg, { type: "error" });
   } finally {
     btn.disabled = false;
-    btn.textContent = "✨ AI write it";
+    btn.textContent = "✨ AI fill (photo + info)";
   }
 });
-
-$("#dish-example").addEventListener("click", () => {
-  const f = $("#dish-form");
-  const ex = EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)];
-  for (const [k, v] of Object.entries(ex)) f[k].value = v;
-});
-$("#dish-cancel").addEventListener("click", () => $("#dish-dialog").close());
 
 $("#dish-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -462,16 +827,35 @@ $("#dish-form").addEventListener("submit", async (e) => {
   };
   $("#dish-save").disabled = true;
   try {
+    await photoJob;
+    const key = draftKey();
     const saved = editing
       ? await api(`/api/admin/dishes/${editing.id}`, { method: "PUT", body: JSON.stringify(body) })
       : await api("/api/admin/dishes", { method: "POST", body: JSON.stringify(body) });
-    const file = f.photo.files[0];
-    if (file) {
+    if (photo) {
       const fd = new FormData();
-      fd.append("photo", await shrink(file), "photo.jpg");
-      await api(`/api/admin/dishes/${saved.id}/photo`, { method: "POST", body: fd });
+      fd.append("photo", await shrink(photo.upload), "photo.jpg");
+      try {
+        await api(`/api/admin/dishes/${saved.id}/photo`, { method: "POST", body: fd });
+      } catch (err) {
+        // The dish itself is saved: switch to editing it so a retry doesn't create a duplicate
+        store.remove(key);
+        editing = saved;
+        dishes = await api("/api/admin/dishes").catch(() => dishes);
+        editing = dishes.find((d) => d.id === saved.id) || saved;
+        $("#dish-dialog-title").textContent = `Edit ${dishName(editing)}`;
+        baseline = JSON.stringify(readForm());
+        saveDraftNow();
+        if (currentTab === "dishes") renderDishes();
+        throw Object.assign(new Error(`Dish saved, but the photo failed: ${err.message}`), { status: err.status });
+      }
     }
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    store.remove(key);
+    photo = null;
     $("#dish-dialog").close();
+    syncDraftChip();
     toast(editing ? `Saved "${dishName(saved)}"` : `Hired "${dishName(saved)}" 🎉`);
     if (currentTab === "overview") loadOverview().catch(fail);
     else if (currentTab === "dishes") await loadDishes();
@@ -484,7 +868,7 @@ $("#dish-form").addEventListener("submit", async (e) => {
 });
 
 // Phone photos are often 5+ MB; shrink to 1200px JPEG before upload (server limit is 4 MB)
-async function shrink(file, max = 1200) {
+async function shrink(file, max = 1200, quality = 0.85) {
   try {
     const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
     const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
@@ -492,7 +876,7 @@ async function shrink(file, max = 1200) {
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
     canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    return await new Promise((resolve) => canvas.toBlob((b) => resolve(b || file), "image/jpeg", 0.85));
+    return await new Promise((resolve) => canvas.toBlob((b) => resolve(b || file), "image/jpeg", quality));
   } catch {
     return file; // unsupported format in this browser: let the server try
   }
@@ -718,7 +1102,19 @@ $("#reset-board").addEventListener("click", async () => {
 // ---- Keyboard ----
 document.addEventListener("keydown", (e) => {
   const dialog = $("#dish-dialog");
-  if (e.key === "Escape" && dialog.open) return dialog.close();
+  if (dialog.open && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+    e.preventDefault();
+    if (!$("#close-dialog").open && !$("#dish-save").disabled) $("#dish-form").requestSubmit();
+    return;
+  }
+  if (e.key === "Escape" && $("#close-dialog").open) {
+    e.preventDefault();
+    return $("#close-dialog").close();
+  }
+  if (e.key === "Escape" && dialog.open) {
+    e.preventDefault();
+    return requestClose();
+  }
   const typing = e.target.closest?.("input, textarea, select, [contenteditable]");
   if (typing || dialog.open || $("#panel").hidden || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "n") {

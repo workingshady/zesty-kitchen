@@ -132,3 +132,18 @@ details summary small { display: block; color: var(--muted); }
   .kpi-value { font-size: 1.2rem; }
   .handle { display: none; }
 }
+
+/* ---- Dish editor: fills, drafts, counters ---- */
+.fill-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 12px; border: 2px dashed var(--ink); border-radius: 10px; background: var(--cream); }
+.fill-title { font-weight: 700; }
+.fill-bar .fill-mode { margin: 0; font-size: .9rem; }
+.fill-hint { flex-basis: 100%; margin: 0; }
+label.filled > input, label.filled > textarea, label.filled > select { background: #fff7c2; border-color: #c99a00; box-shadow: 0 0 0 3px #ffe58a; }
+fieldset.filled { background: #fff7c2; border-color: #c99a00; }
+.counter { justify-self: end; font-size: .75rem; font-weight: 400; color: var(--muted); margin-top: -2px; }
+.counter.near { color: var(--red); font-weight: 700; }
+.draft-banner, .draft-chip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 12px; border: 2px solid var(--ink); border-radius: 10px; background: #e8f6ff; font-weight: 700; }
+.draft-banner span, .draft-chip > span { flex: 1 1 200px; overflow-wrap: anywhere; }
+.draft-chip { box-shadow: 3px 3px 0 var(--ink); }
+.small-dialog { width: min(440px, calc(100vw - 24px)); }
+.small-dialog p { margin: 0 0 14px; }

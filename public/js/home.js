@@ -379,6 +379,191 @@ function initTranslator() {
   });
 }
 
+// AI side quests: office horoscope, beef or besties, excuse generator, review replies, vibe check.
+// Each one asks the server first and falls back to seeded canned lines when AI is off.
+// =====================================================================
+const SIGNS = [
+  ["aries", "♈", "الحمل", "Aries"], ["taurus", "♉", "الثور", "Taurus"], ["gemini", "♊", "الجوزاء", "Gemini"], ["cancer", "♋", "السرطان", "Cancer"],
+  ["leo", "♌", "الأسد", "Leo"], ["virgo", "♍", "العذراء", "Virgo"], ["libra", "♎", "الميزان", "Libra"], ["scorpio", "♏", "العقرب", "Scorpio"],
+  ["sagittarius", "♐", "القوس", "Sagittarius"], ["capricorn", "♑", "الجدي", "Capricorn"], ["aquarius", "♒", "الدلو", "Aquarius"], ["pisces", "♓", "الحوت", "Pisces"],
+];
+const HORO_A = [
+  "النهارده هتقول \"خمس دقايق\" وهتقصد ساعتين.",
+  "Mercury is in retrograde and so is your motivation.",
+  "حد هيبعتلك \"ممكن سؤال صغير؟\" والسؤال مش صغير خالص.",
+  "You will open the fridge 6 times and find the same nothing.",
+  "النجوم بتقول إنك هتسيب رسالة مهمة على seen وترد على ميم.",
+  "Today you'll reply 'noted' to something you did not read.",
+  "هتطلب أكل صحي وهتاكل من طبق اللي جنبك.",
+  "Your phone hits 4% exactly when it matters. Destiny.",
+];
+const HORO_B = ["رقم الحظ: 67.", "Lucky number: 404.", "اللون: رمادي زي يومك.", "Lucky snack: طعمية باردة.", "Avoid: the group chat.", "تجنب: أي حد بيقول \"بص بقى\".", "Energy: NPC with WiFi.", "الحظ: مش النهارده يا حبيبي."];
+const EXCUSE_SITUATIONS = [
+  ["late", "⏰ Late / متأخر"], ["task", "📋 Task not done / التاسك"], ["meeting", "📅 Missed meeting"],
+  ["reply", "📵 Didn't reply / مردتش"], ["leave", "🏃 Leaving early / همشي بدري"], ["camera", "📷 Camera off"],
+];
+const EXCUSE_FALLBACK = {
+  late: ["الميكروباص قرر ياخد طريق تاني يكتشف نفسه، وأنا كنت معاه في الرحلة الروحانية دي 🚐", "The elevator stopped between floors and I took it as a sign to rethink my life.", "صحيت بدري جدًا بس قعدت أفكر في قراري إني أصحى 🫠"],
+  task: ["التاسك خلص في دماغي 100%، فاضل بس أنقله للواقع 🧠", "My laptop updated itself and took my will to live with it.", "النور قطع عندي، وعند التاسك، وعند مستقبلي 🔌"],
+  meeting: ["كنت في الميتنج بس روحيًا، الجسم كان في البوفيه ☕", "Teams said 'reconnecting' for 40 minutes and honestly so was I.", "افتكرت الميتنج بكرة لأني عايش في المستقبل 🔮"],
+  reply: ["كنت في مرحلة detox من الموبايل، من غير ما أقرر ده 📵", "I saw it, I felt it, I just didn't have the emotional bandwidth.", "الرسالة وصلتني بس أنا موصلتلهاش 🫠"],
+  leave: ["عندي ميعاد مهم مع السرير ومش حابب أكسفه 🛏️", "My cat has a situation. I can't say more. It's personal.", "الكهربا هتقطع عندنا الساعة 6 وأنا لازم أكون هناك أستقبلها 🔌"],
+  camera: ["الكاميرا شغالة بس أنا اللي مش شغال 📷", "My camera is off out of respect for everyone in this call.", "الإضاءة عندي وحشة والنفسية أوحش 🫠"],
+};
+const REPLY_FALLBACK = [
+  (n) => `${n} here 👋 شكرًا على الرأي، اتسجل في ملف الحاقدين.`,
+  () => "Ratio. Also who asked? 💅",
+  () => "قريت الريفيو ده وأنا باكل، وكملت أكل عادي 🍽️",
+  () => "Noted. Ignored. Have a blessed day 🫡",
+  () => "انت بتكتب ريفيو ولا بتفضفض؟ اهدى يا حبيبي 😭",
+  () => "1 star from you is a W for me fr 🏆",
+];
+const VIBE_FALLBACK = [
+  "Background is giving 'I took this between two meetings and a crisis'. aura: +420",
+  "الصورة دي متصورة بثقة واحد معاه 3% شحن. NPC energy 🔋",
+  "That pose says 'I'll reply after lunch' and lunch never ends. aura: -67",
+  "الإضاءة دي إضاءة واحد بيقول \"أنا جاي في السكة\" وهو في السرير. verdict: delulu 🛏️",
+  "Main character energy, side character results. aura: +900",
+];
+const DUO_FALLBACK = [
+  (a, b) => `🥩 BEEF: ${a} و${b} بيتخانقوا على آخر كوباية شاي في البوفيه من 2022، والكوباية لسه مكانها.`,
+  (a, b) => `🤝 BESTIES: ${a} and ${b} share one brain cell and today ${b} has it.`,
+  (a, b) => `🥩 BEEF: ${a} بيقول صباح الخير لـ${b} بنبرة "أنا عارف اللي عملته".`,
+  (a, b) => `🤝 BESTIES: ${a} و${b} بيختفوا سوا الساعة 1 ويرجعوا الساعة 3 ومعاهم كشري ومفيش تفسير 🍝`,
+  (a, b) => `🥩 BEEF: ${a} reacts 👍 to everything ${b} says. Cold war, but make it Teams.`,
+];
+const nameOf = (d) => d?.name_ar || d?.name_en || "?";
+const vibeFallback = (d) => VIBE_FALLBACK[hash(`vibe${d.id}${today()}`) % VIBE_FALLBACK.length];
+const say1 = (el, text, ai) => (el.innerHTML = `<span dir="auto">${esc(text)}</span>${ai ? ` <small class="ai-tag">🤖 AI</small>` : ""}`);
+
+function renderHoroscope() {
+  const box = $("#horo");
+  if (!box) return;
+  const saved = store.get("zk_sign", "");
+  box.innerHTML = `
+    <div class="quest__head"><h3>🔮 Office horoscope <small>برجك النهارده</small></h3><span class="quest__date">${esc(today())}</span></div>
+    <p>Pick your sign. The stars read the group chat so you don't have to.</p>
+    <div class="horo__signs" role="group" aria-label="Zodiac signs">${SIGNS.map(([k, g, ar, en]) => `<button type="button" class="horo__sign ${k === saved ? "on" : ""}" data-sign="${k}" aria-pressed="${k === saved}" title="${en}"><span aria-hidden="true">${g}</span><small>${ar}</small></button>`).join("")}</div>
+    <p class="quest-out" id="horo-out" aria-live="polite"></p>`;
+  const run = async (sign, loud) => {
+    $$(".horo__sign", box).forEach((x) => {
+      const on = x.dataset.sign === sign;
+      x.classList.toggle("on", on);
+      x.setAttribute("aria-pressed", String(on));
+    });
+    const out = $("#horo-out");
+    out.textContent = "🔮 Consulting the group chat…";
+    if (loud) play("drumroll");
+    const ai = await askAi("horoscope", { sign });
+    const r = rng(`horo${sign}${today()}`);
+    say1(out, ai || `${seededPick(r, HORO_A)} ${seededPick(r, HORO_B)}`, ai);
+    if (loud) play("hype");
+  };
+  box.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-sign]");
+    if (!b) return;
+    store.set("zk_sign", b.dataset.sign);
+    run(b.dataset.sign, true);
+  });
+  if (SIGNS.some(([k]) => k === saved)) run(saved, false);
+}
+
+function renderBeef() {
+  const box = $("#beef");
+  if (!box) return;
+  const list = D.filter((d) => d.category !== "expired");
+  if (list.length < 2) return (box.innerHTML = `<h3>🥩 Beef or besties?</h3><p>Need at least 2 coworkers 🦗</p>`);
+  const opts = (sel) => list.map((d) => `<option value="${esc(d.id)}" ${d.id === sel ? "selected" : ""}>${esc(nameOf(d))}</option>`).join("");
+  const r = rng(`beef${today()}`);
+  const a = seededPick(r, list);
+  const b = seededPick(r, list.filter((x) => x.id !== a.id));
+  let variant = 0;
+  box.innerHTML = `
+    <div class="quest__head"><h3>🥩 Beef or besties? <small>أعداء ولا صحاب؟</small></h3></div>
+    <p>Pick two coworkers. The chef spills the tea on their dynamic ☕</p>
+    <form class="beef-form" id="beef-form">
+      <label><span class="sr-only">First coworker</span><select class="select" name="a" dir="auto">${opts(a.id)}</select></label>
+      <span class="duel__vs" aria-hidden="true">×</span>
+      <label><span class="sr-only">Second coworker</span><select class="select" name="b" dir="auto">${opts(b.id)}</select></label>
+      <button class="btn red" type="submit">Spill it ☕</button>
+    </form>
+    <p class="quest-out" id="beef-out" aria-live="polite"></p>`;
+  $("#beef-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const [ida, idb] = [f.a.value, f.b.value];
+    if (ida === idb) return toast("Same person twice? That's not beef, that's therapy 🛋️");
+    const btn = f.querySelector("button");
+    btn.disabled = true;
+    const out = $("#beef-out");
+    out.textContent = "☕ Brewing the tea…";
+    play("drumroll");
+    const ai = await askAi("duo", { a: ida, b: idb, variant: variant++ % 5 });
+    const pair = [ida, idb].sort().join("");
+    const make = DUO_FALLBACK[(hash(pair + today()) + variant) % DUO_FALLBACK.length];
+    say1(out, ai || make(nameOf(dishById(ida)), nameOf(dishById(idb))), ai);
+    btn.disabled = false;
+    play(ai?.includes("BEEF") ? "boom" : "hype");
+  });
+}
+
+function renderExcuse() {
+  const box = $("#excuse");
+  if (!box) return;
+  const counts = {};
+  box.innerHTML = `
+    <div class="quest__head"><h3>🙏 Excuse generator <small>مولّد الأعذار</small></h3></div>
+    <p>Pick the crime. Get the alibi. Copy, paste, pray 🙏</p>
+    <form class="excuse-form" id="excuse-form">
+      <div class="excuse__opts" role="radiogroup" aria-label="What did you do">${EXCUSE_SITUATIONS.map(([k, label], i) => `<label class="chip"><input type="radio" name="situation" value="${k}" ${i === 0 ? "checked" : ""}><span><b>${label}</b></span></label>`).join("")}</div>
+      <label class="sr-only" for="excuse-detail">Extra context (optional)</label>
+      <div class="rot-form"><input id="excuse-detail" name="detail" maxlength="100" dir="auto" placeholder="optional: e.g. the 9am standup" autocomplete="off"><button class="btn red" type="submit">Save me 🚑</button></div>
+    </form>
+    <div class="quest-out" id="excuse-out" aria-live="polite"></div>`;
+  $("#excuse-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const situation = f.situation.value;
+    const detail = f.detail.value.trim();
+    const btn = f.querySelector("[type=submit]");
+    btn.disabled = true;
+    const out = $("#excuse-out");
+    out.textContent = "🚑 Fabricating an alibi…";
+    play("drumroll");
+    const ai = await askAi("excuse", detail ? { situation, detail } : { situation });
+    const list = EXCUSE_FALLBACK[situation];
+    counts[situation] = (counts[situation] ?? hash(today()) % list.length) + 1;
+    const text = ai || list[counts[situation] % list.length];
+    out.innerHTML = `<span dir="auto">${esc(text)}</span>${ai ? ` <small class="ai-tag">🤖 AI</small>` : ""} <button class="btn white" type="button" data-copy>📋 Copy</button>`;
+    out.querySelector("[data-copy]").addEventListener("click", () =>
+      navigator.clipboard?.writeText(text).then(() => toast("Copied. Send it with confidence 🫡"), () => toast("Couldn't copy, screenshot it 📸", { error: true })),
+    );
+    btn.disabled = false;
+    play("hype");
+  });
+}
+
+/** 💬 "Let them reply": the coworker claps back at a review (wired from the dish modal). */
+export async function replyToReview(e, d) {
+  const btn = e.target.closest("[data-reply]");
+  if (!btn) return;
+  const review = btn.closest(".review");
+  btn.disabled = true;
+  let box = review.querySelector(".review__reply");
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "review__reply";
+    box.setAttribute("aria-live", "polite");
+    review.append(box);
+  }
+  box.textContent = `✍️ ${nameOf(d)} is typing…`;
+  const ai = await askAi("review-reply", { dish_id: d.id, review_id: btn.dataset.reply });
+  const text = ai || REPLY_FALLBACK[hash(btn.dataset.reply) % REPLY_FALLBACK.length](nameOf(d));
+  box.innerHTML = `<strong dir="auto">↪️ ${esc(nameOf(d))}</strong> <span class="review__reply-tag">${ai ? "🤖 AI · " : ""}the dish replied</span><p dir="auto">${esc(text)}</p>`;
+  btn.remove();
+  play("lol");
+}
+
 // Side quests: coworker of the day + would-you-rather duel
 // =====================================================================
 const VIBES = ["locked in 🔒", "lowkey chaotic 🌪️", "on mute all day 🔇", "main character 🎬", "running on 3 coffees ☕", "fake busy 💻", "out of office (mentally) 🏝️", "aura farming 🌾"];
@@ -752,6 +937,13 @@ const ROASTS = [
   (n) => `${n} أول واحد في البوفيه وآخر واحد في الشغل.`,
   (n) => `${n} schedules a meeting to plan the next meeting.`,
   (n) => `${n}'s Teams status has been "Away" since onboarding.`,
+  (n) => `${n} بيقول "أنا جاي في السكة" وهو لسه بيختار هيلبس إيه 🫠`,
+  (n) => `${n}'s weekend plans: sleep, scroll, regret. Same trilogy every week.`,
+  (n) => `${n} بيطلب "أي حاجة" وبعدين يقعد يشتكي من الأكل 💀`,
+  (n) => `POV: you asked ${n} a yes/no question and got a 6-minute voice note.`,
+  (n) => `${n} عنده 3 منبهات الصبح وبيصحى على تالت مكالمة من مامته ⏰`,
+  (n) => `${n} has 4% battery and 100% confidence. Every single day.`,
+  (n) => `محدش: / ولا حد: / ${n}: "أنا أصلًا مش بتاع دراما" 🍿`,
 ];
 
 /** Wire the photo toys for the dish currently open in the modal. */
@@ -961,9 +1153,22 @@ export function dishTools(d) {
     const ai = await askAi("roast", { dish_id: d.id, variant: roastVariant++ % 10 });
     btn.disabled = false;
     const text = ai || ROASTS[roastI++ % ROASTS.length](name);
-    el.innerHTML = `<div class="roast" role="status"><span class="roast__mic" aria-hidden="true">🎤</span><p dir="auto">${esc(text)}</p><small>${ai ? "🤖 AI roast · " : ""}Workplace roast. Keep it about the job, never the person. 🫡</small><button class="btn white" type="button" data-again>🔁 Another one</button></div>`;
+    el.innerHTML = `<div class="roast" role="status"><span class="roast__mic" aria-hidden="true">🎤</span><p dir="auto">${esc(text)}</p><small>${ai ? "🤖 AI roast · " : ""}Roasted with love. No looks, no religion, no family. 🫡</small><button class="btn white" type="button" data-again>🔁 Another one</button></div>`;
     el.querySelector("[data-again]").addEventListener("click", () => $("#roast").click());
     play("lol");
+  });
+
+  // ---------- 🔍 Vibe check (Gemini looks at the photo; seeded canned verdict otherwise) ----------
+  $("#vibe-check")?.addEventListener("click", async () => {
+    const btn = $("#vibe-check");
+    btn.disabled = true;
+    const box = (html) => panel("vibe", `<div class="roast vibe" role="status"><span class="roast__mic" aria-hidden="true">🔍</span>${html}</div>`);
+    box(`<p dir="auto">🤖 Reading the vibes… الشيف بيبص كويس</p>`);
+    const ai = d.photo_url ? await askAi("vibe-check", { dish_id: d.id }) : null;
+    btn.disabled = false;
+    const text = ai || vibeFallback(d);
+    box(`<p dir="auto">${esc(text)}</p><small>${ai ? "🤖 AI vibe check · " : ""}Vibes only. We don't rate faces. 🫡</small>`);
+    play(ai ? "lol" : "pop");
   });
 }
 
@@ -1056,6 +1261,9 @@ export function initHome(ctx) {
   renderStreak();
   renderPotd();
   renderDuel();
+  renderHoroscope();
+  renderBeef();
+  renderExcuse();
   setupLeaderboard();
   renderWorst();
   setupWheel();
