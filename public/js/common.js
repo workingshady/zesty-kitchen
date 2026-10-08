@@ -572,43 +572,146 @@ function googlyEyes() {
 // Perf: at most one crumb per 80ms, spawned inside rAF, max 10 alive, transform/opacity-only
 // animation (position via CSS vars), removed on animationend. Skipped when calm or tab hidden.
 function crumbTrail() {
-  if (isTouch()) return;
-  const crumbs = ["🍗", "🌶️", "🧆", "🍚", "🌯", "🥙", "🫘"];
-  const MAX = 10;
-  let alive = 0;
-  let last = 0;
-  let queued = null;
-  const spawn = () => {
-    const p = queued;
-    queued = null;
-    if (!p || alive >= MAX) return;
-    const s = document.createElement("span");
-    s.className = "trail";
-    s.setAttribute("aria-hidden", "true");
-    s.textContent = pick(crumbs);
-    s.style.setProperty("--x", `${p.x + 8}px`);
-    s.style.setProperty("--y", `${p.y + 8}px`);
-    alive++;
-    const done = () => {
-      if (!s.isConnected) return;
-      s.remove();
-      alive--;
-    };
-    s.addEventListener("animationend", done, { once: true });
-    setTimeout(done, 1200); // safety net if animations are disabled
-    document.body.append(s);
+  // Canvas particle trail + a soft follower ring. One canvas, one rAF loop that sleeps when idle,
+  // emoji pre-rendered once as sprites. Mouse/pen only; off in chill mode and reduced motion.
+  if (isTouch() || !window.matchMedia("(pointer: fine)").matches) return;
+  const CRUMBS = ["🍗", "🌶️", "🧆", "🍚", "🌯", "🥙", "🫘", "🍋"];
+  const MAX = 60;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const sprites = CRUMBS.map((e) => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 48 * dpr;
+    const g = c.getContext("2d");
+    g.scale(dpr, dpr);
+    g.font = "32px serif";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(e, 24, 26);
+    return c;
+  });
+
+  const cv = document.createElement("canvas");
+  cv.className = "fx-canvas";
+  cv.setAttribute("aria-hidden", "true");
+  document.body.append(cv);
+  const ctx = cv.getContext("2d");
+  const resize = () => {
+    cv.width = innerWidth * dpr;
+    cv.height = innerHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
+  resize();
+  addEventListener("resize", resize, { passive: true });
+
+  const ring = document.createElement("div");
+  ring.className = "cursor-ring";
+  ring.setAttribute("aria-hidden", "true");
+  document.body.append(ring);
+
+  const parts = [];
+  const mouse = { x: -100, y: -100, px: -100, py: -100, seen: false };
+  const ringPos = { x: -100, y: -100 };
+  let travelled = 0;
+  let running = false;
+  let lastT = 0;
+
+  const spawn = (x, y, vx, vy, size = 22) => {
+    if (parts.length >= MAX) parts.shift();
+    parts.push({ x, y, vx, vy, r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.25, s: size, life: 0, ttl: 650 + Math.random() * 350, img: pick(sprites) });
+  };
+
+  function frame(t) {
+    const dt = Math.min(32, t - (lastT || t)) / 16.67;
+    lastT = t;
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    if (calm()) parts.length = 0;
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      p.life += dt * 16.67;
+      if (p.life >= p.ttl) {
+        parts.splice(i, 1);
+        continue;
+      }
+      p.vy += 0.22 * dt; // gravity
+      p.vx *= 0.98;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.r += p.vr * dt;
+      const k = 1 - p.life / p.ttl;
+      ctx.globalAlpha = Math.min(1, k * 1.6);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.r);
+      const s = p.s * (0.6 + 0.4 * k);
+      ctx.drawImage(p.img, -s / 2, -s / 2, s, s);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    // Ring eases toward the pointer
+    ringPos.x += (mouse.x - ringPos.x) * Math.min(1, 0.28 * dt);
+    ringPos.y += (mouse.y - ringPos.y) * Math.min(1, 0.28 * dt);
+    ring.style.transform = `translate3d(${ringPos.x}px, ${ringPos.y}px, 0)`;
+    const settled = Math.abs(mouse.x - ringPos.x) < 0.3 && Math.abs(mouse.y - ringPos.y) < 0.3;
+    if (parts.length || !settled) requestAnimationFrame(frame);
+    else running = false;
+  }
+  const wake = () => {
+    if (running || document.hidden) return;
+    running = true;
+    lastT = 0;
+    requestAnimationFrame(frame);
+  };
+
   document.addEventListener(
     "pointermove",
     (e) => {
-      const now = performance.now();
-      if (now - last < 80 || document.hidden || calm()) return;
-      last = now;
-      if (!queued) requestAnimationFrame(spawn);
-      queued = { x: e.clientX, y: e.clientY };
+      if (e.pointerType && e.pointerType !== "mouse" && e.pointerType !== "pen") return;
+      const off = calm();
+      document.documentElement.classList.toggle("has-ring", !off);
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+      if (!mouse.seen) {
+        mouse.seen = true;
+        ringPos.x = mouse.x;
+        ringPos.y = mouse.y;
+        mouse.px = mouse.x;
+        mouse.py = mouse.y;
+      }
+      const dx = mouse.x - mouse.px;
+      const dy = mouse.y - mouse.py;
+      mouse.px = mouse.x;
+      mouse.py = mouse.y;
+      if (!off) {
+        travelled += Math.hypot(dx, dy);
+        // One crumb per ~34px of movement, flung slightly backwards from the motion
+        while (travelled > 34) {
+          travelled -= 34;
+          spawn(mouse.x, mouse.y, -dx * 0.08 + (Math.random() - 0.5) * 1.6, -dy * 0.08 - Math.random() * 1.5);
+        }
+      }
+      const hot = e.target.closest?.("a, button, [role='button'], .card, input, select, textarea, label");
+      ring.classList.toggle("is-hot", Boolean(hot));
+      wake();
     },
     { passive: true },
   );
+  document.addEventListener("pointerdown", (e) => {
+    ring.classList.add("is-down");
+    if (calm() || e.pointerType === "touch") return;
+    // Little burst on click
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + Math.random() * 0.4;
+      const v = 2.5 + Math.random() * 2.5;
+      spawn(e.clientX, e.clientY, Math.cos(a) * v, Math.sin(a) * v - 1.5, 18 + Math.random() * 10);
+    }
+    wake();
+  });
+  document.addEventListener("pointerup", () => ring.classList.remove("is-down"));
+  document.documentElement.addEventListener("mouseleave", () => ring.classList.add("is-away"));
+  document.documentElement.addEventListener("mouseenter", () => ring.classList.remove("is-away"));
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) parts.length = 0;
+  });
 }
 
 // ---------- tab title guilt trip ----------

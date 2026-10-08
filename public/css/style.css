@@ -431,3 +431,12 @@ button.pill:hover { transform: rotate(-2deg) scale(1.05); background: var(--must
   .logo__name { font-size: 1.25rem; }
   .arcade-link { width: 36px; height: 36px; }
 }
+
+/* ---------- Mouse effect: canvas crumb trail + follower ring ---------- */
+.fx-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9998; }
+.cursor-ring { position: fixed; top: 0; left: 0; width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 3px solid var(--ink); border-radius: 50%; background: rgba(255, 199, 0, .18); pointer-events: none; z-index: 9999; opacity: 0; transition: width .18s, height .18s, margin .18s, background .18s, opacity .2s, border-color .18s; will-change: transform; }
+.has-ring .cursor-ring { opacity: 1; }
+.cursor-ring.is-hot { width: 54px; height: 54px; margin: -27px 0 0 -27px; background: rgba(255, 105, 180, .22); border-color: var(--hot); }
+.cursor-ring.is-down { width: 24px; height: 24px; margin: -12px 0 0 -12px; background: rgba(250, 75, 19, .35); }
+.cursor-ring.is-away, .chill-on .cursor-ring { opacity: 0 !important; }
+@media (hover: none), (prefers-reduced-motion: reduce) { .cursor-ring, .fx-canvas { display: none; } }
