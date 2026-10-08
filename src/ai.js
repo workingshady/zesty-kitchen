@@ -32,12 +32,15 @@ async function gemini(env, { system, prompt, maxTokens, temperature, json }) {
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       // Newer Gemini models "think" before answering and that counts toward the output budget
-      generationConfig: { temperature, maxOutputTokens: maxTokens * 4, ...(json ? { responseMimeType: "application/json" } : {}) },
+      generationConfig: { temperature, maxOutputTokens: maxTokens * 10, ...(json ? { responseMimeType: "application/json" } : {}) },
     }),
   });
   if (!res.ok) throw new Error(`Gemini ${res.status}`);
   const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim() || null;
+  const candidate = data.candidates?.[0];
+  // A reply cut off mid-sentence is worse than none: let the next provider try
+  if (candidate?.finishReason === "MAX_TOKENS") throw new Error("Gemini reply was cut off");
+  return candidate?.content?.parts?.map((p) => p.text || "").join("").trim() || null;
 }
 
 async function groq(env, { system, prompt, maxTokens, temperature, json }) {
@@ -53,13 +56,15 @@ async function groq(env, { system, prompt, maxTokens, temperature, json }) {
       temperature,
       // gpt-oss reasons before answering; keep it short and leave room for it
       reasoning_effort: "low",
-      max_tokens: maxTokens * 4,
+      max_tokens: maxTokens * 10,
       ...(json ? { response_format: { type: "json_object" } } : {}),
     }),
   });
   if (!res.ok) throw new Error(`Groq ${res.status}`);
   const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() || null;
+  const choice = data.choices?.[0];
+  if (choice?.finish_reason === "length") throw new Error("Groq reply was cut off");
+  return choice?.message?.content?.trim() || null;
 }
 
 function createAi(env = process.env) {
