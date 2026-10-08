@@ -468,3 +468,12 @@ html { overflow-x: clip; }
 .fun__arcade-txt small { color: var(--ink); opacity: .8; }
 .fun__arcade-go { flex: none; min-height: 40px; }
 @media (max-width: 520px) { .fun__arcade { padding: var(--sp-3); } .fun__arcade-go { padding: .2em .9em; } }
+
+/* 🔗 Share button + menu in the dish popup */
+.dish-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; position: relative; }
+.dish-title-row h2 { margin: 0; }
+.share-btn { min-height: 40px; padding: .2em .9em; font-size: .9rem; }
+.share-menu { position: absolute; top: 100%; inset-inline-end: 0; z-index: 20; display: grid; min-width: 220px; margin-top: 6px; background: var(--paper); border: var(--border); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.share-menu > * { display: block; padding: 10px 14px; border: 0; border-bottom: 2px solid #eee; background: none; text-align: start; font: inherit; font-family: var(--font-ui); font-weight: 700; color: var(--ink); text-decoration: none; cursor: pointer; }
+.share-menu > *:last-child { border-bottom: 0; }
+.share-menu > *:hover, .share-menu > *:focus-visible { background: var(--mustard); }

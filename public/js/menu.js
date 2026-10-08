@@ -138,7 +138,7 @@ async function openDish(id) {
       </div>
       <div class="dish-info">
         <div class="badges">${c ? `<span class="badge">${c.emoji} ${esc(c.ar)} / ${esc(c.en)}</span>` : ""}${d.badges.map((b) => `<span class="badge ${b}">${badgeLabel(b)}</span>`).join("")}</div>
-        <h2 id="dish-title" dir="auto">${esc(d.name_ar)}</h2>
+        <div class="dish-title-row"><h2 id="dish-title" dir="auto">${esc(d.name_ar)}</h2><button class="btn white share-btn" type="button" id="share-dish" aria-label="Share this dish">🔗 Share / شير</button></div>
         ${d.name_en ? `<div class="card__name-en">${esc(d.name_en)}</div>` : ""}
         ${d.job_title ? `<span class="card__job" dir="auto">💼 ${esc(d.job_title)}</span>` : ""}
         <p dir="auto">${esc(d.description)}</p>
@@ -216,6 +216,7 @@ async function openDish(id) {
   });
 
   dishTools(d);
+  $("#share-dish").addEventListener("click", () => shareDish(d));
   $$(".rating", $("#review-form")).forEach((group) =>
     group.addEventListener("change", () => {
       const v = Number(group.querySelector("input:checked").value);
@@ -225,6 +226,47 @@ async function openDish(id) {
   $("#review-form").addEventListener("submit", (e) => postReview(e, d.id));
   $("#review-list").addEventListener("click", onReviewClick);
   $("#review-list").addEventListener("click", (e) => replyToReview(e, d));
+}
+
+// 🔗 Share: native share sheet on phones, otherwise a small menu (copy / WhatsApp / X / Facebook).
+// /d/<id> serves a preview (photo + name) for chat apps, then opens the site on that dish.
+function shareDish(d) {
+  const url = `${location.origin}/d/${encodeURIComponent(d.id)}`;
+  const text = `${d.name_ar}${d.name_en ? ` · ${d.name_en}` : ""} on Zesty Kitchen 🍋 اطلبه قبل ما يخلص`;
+  play("whoosh");
+  if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+    navigator.share({ title: d.name_ar, text, url }).catch(() => {});
+    return;
+  }
+  $(".share-menu")?.remove();
+  const menu = document.createElement("div");
+  menu.className = "share-menu";
+  menu.setAttribute("role", "menu");
+  const enc = encodeURIComponent;
+  menu.innerHTML = `
+    <button type="button" role="menuitem" data-copy>📋 Copy link / انسخ اللينك</button>
+    <a role="menuitem" target="_blank" rel="noopener" href="https://wa.me/?text=${enc(`${text}
+${url}`)}">🟢 WhatsApp</a>
+    <a role="menuitem" target="_blank" rel="noopener" href="https://twitter.com/intent/tweet?text=${enc(text)}&url=${enc(url)}">✖️ X / Twitter</a>
+    <a role="menuitem" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u=${enc(url)}">🔵 Facebook</a>
+    <a role="menuitem" target="_blank" rel="noopener" href="https://t.me/share/url?url=${enc(url)}&text=${enc(text)}">✈️ Telegram</a>`;
+  $("#share-dish").after(menu);
+  menu.querySelector("[data-copy]").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast("Link copied 🔗 ابعته للضحية");
+    } catch {
+      prompt("Copy this link:", url);
+    }
+    menu.remove();
+  });
+  menu.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => menu.remove()));
+  setTimeout(() => document.addEventListener("click", function close(e) {
+    if (!menu.contains(e.target) && e.target.id !== "share-dish") {
+      menu.remove();
+      document.removeEventListener("click", close);
+    }
+  }), 0);
 }
 
 function countUp(el, target) {

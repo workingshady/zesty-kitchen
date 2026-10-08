@@ -62,6 +62,31 @@ function sitemapRouter({ db, adminPath, sessionSecret }) {
     );
   });
 
+  // Share links: /d/<id> gives chat apps a preview (photo + name), then opens the site on that dish
+  router.get("/d/:id", async (req, res) => {
+    const dish = await db.getDish(req.params.id).catch(() => null);
+    const target = dish && dish.is_visible ? `/?dish=${encodeURIComponent(dish.id)}` : "/";
+    if (!dish || !dish.is_visible) return res.redirect(target);
+    const base = origin(req);
+    const title = `${dish.name_ar}${dish.name_en ? ` · ${dish.name_en}` : ""} | Zesty Kitchen 🍋`;
+    const desc = dish.description || "اطلب زمايلك أونلاين. Order your coworkers.";
+    const image = dish.photo_path && db.photoUrl ? db.photoUrl(dish.photo_path) : "";
+    const abs = image && !/^https?:/.test(image) ? base + image : image;
+    res.type("html").send(`<!doctype html><html lang="ar"><head><meta charset="utf-8">
+<title>${esc(title)}</title>
+<meta name="description" content="${esc(desc)}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Zesty Kitchen">
+<meta property="og:title" content="${esc(title)}">
+<meta property="og:description" content="${esc(desc)}">
+<meta property="og:url" content="${esc(base + req.originalUrl)}">
+${abs ? `<meta property="og:image" content="${esc(abs)}"><meta name="twitter:image" content="${esc(abs)}">` : ""}
+<meta name="twitter:card" content="${abs ? "summary_large_image" : "summary"}">
+<meta name="twitter:title" content="${esc(title)}">
+<meta http-equiv="refresh" content="0;url=${esc(target)}">
+</head><body><a href="${esc(target)}">${esc(title)}</a></body></html>`);
+  });
+
   router.get("/robots.txt", (req, res) => {
     // The admin link is deliberately NOT listed here: robots.txt is public too
     res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${origin(req)}/sitemap.xml\n`);

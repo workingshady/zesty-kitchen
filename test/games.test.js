@@ -46,3 +46,15 @@ test("sitemaps: public one never leaks the admin link, admin one needs the cooki
   assert.ok(full.text.includes("/secret-kitchen"));
   assert.ok(full.text.includes("/api/admin/agent"));
 });
+
+test("share links: /d/<id> has preview tags and opens the dish", async () => {
+  const db = createMemoryStore();
+  const [dish] = await db.listDishes();
+  const app = createApp({ db, env, ai: { enabled: false } });
+  const r = await request(app).get(`/d/${dish.id}`);
+  assert.equal(r.status, 200);
+  assert.match(r.text, /og:title/);
+  assert.ok(r.text.includes(dish.name_ar));
+  assert.ok(r.text.includes(`/?dish=${dish.id}`));
+  assert.equal((await request(app).get("/d/not-a-dish")).status, 302);
+});
