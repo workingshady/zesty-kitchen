@@ -25,7 +25,7 @@ const makeLimiter = () => rateLimit({
 
 const FALLBACKS = [
   "الجرسون في بريك شاي ☕ The waiter is on a tea break (AI is off). Use the menu like it's 2010 🫠",
-  "The waiter went to pray for your order choices 🙏 back soon. Meanwhile, the buttons still work.",
+  "The waiter is on a tea break and pretending not to see you ☕ back soon. Meanwhile, the buttons still work.",
   "الجرسون نزل يجيب عيش ومرجعش 🥖💀 AI is napping, order manually habibi.",
 ];
 const pick = (list) => list[Math.floor(Math.random() * list.length)];

@@ -6,6 +6,11 @@ const TIMEOUT_MS = 12_000;
 const DAILY_CAP = Number(process.env.AI_DAILY_CAP || 400); // stay inside free-tier limits
 
 let usage = { day: "", count: 0 };
+const lastErrors = [];
+const noteError = (msg) => {
+  lastErrors.unshift({ at: new Date().toISOString(), msg: String(msg).slice(0, 300) });
+  lastErrors.length = Math.min(lastErrors.length, 10);
+};
 
 function underCap() {
   const day = new Date().toISOString().slice(0, 10);
@@ -102,6 +107,7 @@ function createAi(env = process.env) {
   return {
     enabled: providers.length > 0,
     providers: providers.map(([name]) => name),
+    diagnostics: () => ({ providers: providers.map(([n]) => n), usage: { ...usage }, cap: DAILY_CAP, lastErrors }),
     /**
      * One chat turn with optional tools. Returns the assistant message
      * ({ content, tool_calls }) or null. Groq first for the agent: it is faster at tool use.
@@ -116,6 +122,7 @@ function createAi(env = process.env) {
           if (msg) return msg;
         } catch (err) {
           console.warn(`AI chat provider ${name} failed: ${err.message}`);
+          noteError(`chat ${name}: ${err.message}`);
         }
       }
       return null;
@@ -131,6 +138,7 @@ function createAi(env = process.env) {
           if (text) return text;
         } catch (err) {
           console.warn(`AI provider ${name} failed: ${err.message}`);
+          noteError(`generate ${name}: ${err.message}`);
         }
       }
       return null;

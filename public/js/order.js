@@ -325,7 +325,7 @@ function addStop() {
 function drainBattery() {
   mapState.batt = Math.max(3, mapState.batt - 1 - (Math.random() < 0.25 ? 1 : 0));
   const b = mapState.batt;
-  setText(M.batt, b <= 8 ? `🪫 ${b}% · praying 🙏` : b <= 15 ? `${b}% · low power mode` : `${b}%`);
+  setText(M.batt, b <= 8 ? `🪫 ${b}% · hanging by a thread 🧵` : b <= 15 ? `${b}% · low power mode` : `${b}%`);
   M.batt.classList.toggle("is-low", b <= 15);
 }
 function setHeading(a, b) {

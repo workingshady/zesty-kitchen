@@ -43,7 +43,7 @@ function tidy(text, max) {
   return s.slice(0, max);
 }
 const today = () => new Date().toISOString().slice(0, 10);
-const TEMP = 1.1;
+const TEMP = 0.85; // higher made the Arabic ramble
 
 const catOf = (slug) => CATEGORIES.find((c) => c.slug === slug);
 

@@ -513,7 +513,7 @@ function renderExcuse() {
   const counts = {};
   box.innerHTML = `
     <div class="quest__head"><h3>🙏 Excuse generator <small>مولّد الأعذار</small></h3></div>
-    <p>Pick the crime. Get the alibi. Copy, paste, pray 🙏</p>
+    <p>Pick the crime. Get the alibi. Copy, paste, hope 🤞</p>
     <form class="excuse-form" id="excuse-form">
       <div class="excuse__opts" role="radiogroup" aria-label="What did you do">${EXCUSE_SITUATIONS.map(([k, label], i) => `<label class="chip"><input type="radio" name="situation" value="${k}" ${i === 0 ? "checked" : ""}><span><b>${label}</b></span></label>`).join("")}</div>
       <label class="sr-only" for="excuse-detail">Extra context (optional)</label>

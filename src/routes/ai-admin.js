@@ -49,6 +49,8 @@ const clampInt = (n, min, max, fallback) => {
 // Admin-only helper: write the funny fields for a dish, optionally "looking" at its photo
 function aiAdminRouter(ai) {
   const router = express.Router();
+  // Admin-only: which providers are configured and the last provider errors
+  router.get("/diag", (req, res) => res.json(ai.diagnostics ? ai.diagnostics() : {}));
   router.post("/bio", limiter, bigJson, async (req, res) => {
     const b = req.body || {};
     const nameAr = v.text(String(b.name_ar ?? ""), "name_ar", { min: 0, max: 60 });
