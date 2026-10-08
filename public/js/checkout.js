@@ -3,7 +3,7 @@
 // The phone number never leaves this page.
 import {
   $, $$, api, esc, egp, toast, play, calm, pick, sleep, getConfig, getDishes, initCommon, chefHtml,
-  getCart, saveCart, feesFor, avatarHtml, fitImg, linePrice, lineKey, addToCart,
+  getCart, saveCart, feesFor, avatarHtml, fitImg, linePrice, lineKey, addToCart, aiEnabled, askAi,
 } from "./common.js";
 
 const STEPS = [
@@ -249,6 +249,7 @@ function stepCart() {
       })
       .join("")}</div>
     <p class="regret">🔥 <b>${kcal.toLocaleString("en-US")} kcal of regret</b> · ≈ ${Math.max(1, Math.round(kcal / 150))} flights of stairs to the HR office</p>
+    <div class="judge"><button class="btn pink" type="button" data-judge>🔮 Judge my order (AI)</button><p class="judge__out" id="judge-out" aria-live="polite" dir="auto"></p></div>
     <div class="co-toggles">
       <label class="check-row"><input type="checkbox" id="cutlery" ${extra.cutlery ? "checked" : ""}><span><b>🍴 Send cutlery / معالق</b><br><small>Or eat with your hands like a real one</small></span></label>
       <label class="check-row"><input type="checkbox" id="nodrama" ${extra.noDrama ? "checked" : ""}><span><b>🧘 No drama / بدون دراما</b><br><small>Subject to availability (it's never available)</small></span></label>
@@ -286,11 +287,32 @@ function updateLine(i, patch) {
   saveCart(cart);
 }
 
+const JUDGE_FALLBACK = [
+  "W order no cap. +6,700 aura. HR is shaking 🫨",
+  "L order. -67 aura. It's giving 'I didn't read the menu' 💀",
+  "Mid order fr fr. 5/10. The coworkers deserve better 😐",
+  "Main character order. The kitchen is crying (happy tears) 🎬",
+  "يسطا ده طلب NPC… بس ماشي، مقبولة منك 🫡",
+];
+async function judgeOrder(btn) {
+  const out = $("#judge-out");
+  btn.disabled = true;
+  out.textContent = "🔮 Consulting the brainrot oracle…";
+  play("drumroll");
+  const items = getCart().map((l) => ({ name: l.name_en || l.name_ar, size: l.size, qty: l.qty }));
+  const ai = await askAi("judge", { items });
+  out.textContent = ai || pick(JUDGE_FALLBACK);
+  play(/(^|s)L|-d+ aura|💀/.test(out.textContent) ? "bigfail" : "hype");
+  btn.disabled = false;
+  btn.textContent = "🔮 Judge it again";
+}
+
 function bindCart() {
   const p = $(".panel");
   p.addEventListener("click", (e) => {
     const t = e.target.closest("button");
     if (!t) return;
+    if (t.dataset.judge !== undefined) return judgeOrder(t);
     if (t.dataset.q) {
       const i = Number(t.dataset.i);
       const cart = getCart();

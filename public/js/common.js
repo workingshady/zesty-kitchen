@@ -65,6 +65,20 @@ function showWaking() {
   document.body.append(el);
 }
 
+// ---------- AI (server-side Gemini/Groq; null when off so callers use canned jokes) ----------
+let aiPromise = null;
+export const aiEnabled = () => (aiPromise ||= fetch("/api/ai/status").then((r) => r.json()).then((d) => !!d.enabled).catch(() => false));
+export async function askAi(path, body) {
+  if (!(await aiEnabled())) return null;
+  try {
+    const res = await fetch(`/api/ai/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok) return null;
+    return (await res.json()).text || null;
+  } catch {
+    return null;
+  }
+}
+
 let configPromise = null;
 export const getConfig = () => (configPromise ||= api("/api/config"));
 let dishesPromise = null;

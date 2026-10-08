@@ -76,6 +76,16 @@
       <div class="quests">
         <article class="quest quest--potd" id="potd-section" aria-label="Coworker of the day"></article>
         <article class="quest quest--duel" id="duel" aria-label="Would you rather eat"></article>
+        <article class="quest quest--rot" aria-labelledby="rot-title">
+          <h3 id="rot-title">🧠 Brainrot translator / مترجم البرين روت</h3>
+          <p>Type something normal. Get it back fully cooked. 🤖 AI-powered (when the chef is awake).</p>
+          <form id="rot-form" class="rot-form">
+            <label class="sr-only" for="rot-input">Sentence to translate</label>
+            <input id="rot-input" maxlength="200" dir="auto" placeholder="I have a meeting at 9am" autocomplete="off">
+            <button class="btn red" type="submit">Translate 🔥</button>
+          </form>
+          <p class="rot-out" id="rot-out" aria-live="polite" dir="auto"></p>
+        </article>
       </div>
     </section>
 

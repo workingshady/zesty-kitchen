@@ -418,6 +418,24 @@ const EXAMPLES = [
   { job_title: "Head of Gossip ☕", catchphrase: "بيقولك…", warnings: "tea, more tea, screenshots", description: "Soaked in gossip. Knows everyone's salary.", spice_level: 5 },
   { job_title: "IT guy who never answers", catchphrase: "did you try restarting it?", warnings: "cables, silence", description: "Grilled on low heat. Replies in 3–5 business days.", spice_level: 3 },
 ];
+$("#dish-ai").addEventListener("click", async (e) => {
+  const f = $("#dish-form");
+  const btn = e.currentTarget;
+  if (!f.name_ar.value.trim() && !f.name_en.value.trim()) return toast("Type a name first", { type: "error" });
+  btn.disabled = true;
+  btn.textContent = "✨ Cooking…";
+  try {
+    const out = await api("/api/admin/ai/bio", { method: "POST", body: JSON.stringify({ name_ar: f.name_ar.value, name_en: f.name_en.value, notes: f.description.value }) });
+    for (const k of ["job_title", "description", "catchphrase", "warnings", "spice_level"]) if (out[k]) f[k].value = out[k];
+    toast("AI wrote it. Check and Save 🫡");
+  } catch (err) {
+    toast(err.message, { type: "error" });
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✨ AI write it";
+  }
+});
+
 $("#dish-example").addEventListener("click", () => {
   const f = $("#dish-form");
   const ex = EXAMPLES[Math.floor(Math.random() * EXAMPLES.length)];

@@ -6,6 +6,7 @@ const sharp = require("sharp");
 const menu = require("../menu");
 const v = require("../validate");
 const auth = require("../auth");
+const { aiAdminRouter } = require("./ai");
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -127,7 +128,7 @@ function dishFields(body, { partial }) {
   return out;
 }
 
-function adminRouter(db, { password, sessionSecret, secureCookies }) {
+function adminRouter(db, { password, sessionSecret, secureCookies, ai }) {
   const router = express.Router();
 
   router.post("/login", loginLimiter, (req, res) => {
@@ -148,6 +149,8 @@ function adminRouter(db, { password, sessionSecret, secureCookies }) {
     if (auth.isValidToken(req.cookies?.[auth.COOKIE_NAME], sessionSecret)) return next();
     res.status(401).json({ error: "Not logged in" });
   });
+
+  if (ai) router.use("/ai", aiAdminRouter(ai));
 
   router.post("/logout", (req, res) => {
     res.clearCookie(auth.COOKIE_NAME, { path: "/" });

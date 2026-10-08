@@ -6,11 +6,13 @@ const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const { publicRouter } = require("./routes/public");
 const { adminRouter } = require("./routes/admin");
+const { aiRouter } = require("./routes/ai");
+const { createAi } = require("./ai");
 
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 const VIEWS_DIR = path.join(__dirname, "..", "views");
 
-function createApp({ db, env = process.env }) {
+function createApp({ db, env = process.env, ai = createAi(env) }) {
   const app = express();
   const isProd = env.NODE_ENV === "production";
   const adminPath = (env.ADMIN_PATH || "").replace(/^\/+|\/+$/g, "");
@@ -45,6 +47,7 @@ function createApp({ db, env = process.env }) {
     res.json({ status: "ok", store: db.kind });
   });
 
+  app.use("/api/ai", aiRouter(db, ai));
   app.use("/api", publicRouter(db));
 
   if (adminEnabled) {
@@ -54,6 +57,7 @@ function createApp({ db, env = process.env }) {
         password: env.ADMIN_PASSWORD,
         sessionSecret: env.SESSION_SECRET || env.ADMIN_PASSWORD,
         secureCookies: isProd,
+        ai,
       }),
     );
     const adminHtml = fs.readFileSync(path.join(VIEWS_DIR, "admin.html"), "utf8").replace("__ADMIN_PATH__", adminPath);

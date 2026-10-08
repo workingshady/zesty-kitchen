@@ -195,3 +195,23 @@ test("admin dish list includes review and order counts", async () => {
   assert.equal(row.order_qty, 2);
   assert.equal(row.review_count, 1);
 });
+
+test("AI features fall back cleanly when no key is set, and pass provider text through unfiltered", async () => {
+  const db = createMemoryStore();
+  const [dish] = await db.listDishes();
+  const off = createApp({ db, env, ai: { enabled: false, generate: async () => null } });
+  assert.deepEqual((await request(off).get("/api/ai/status")).body, { enabled: false });
+  const r1 = await request(off).post("/api/ai/roast").send({ dish_id: dish.id });
+  assert.equal(r1.status, 503);
+  assert.equal(r1.body.fallback, true);
+
+  const prompts = [];
+  const fake = { enabled: true, generate: async ({ prompt }) => (prompts.push(prompt), "it's giving fucking overtime 💀") };
+  const on = createApp({ db, env, ai: fake });
+  const r2 = await request(on).post("/api/ai/roast").send({ dish_id: dish.id });
+  assert.equal(r2.status, 200);
+  assert.equal(r2.body.text, "it's giving fucking overtime 💀"); // AI output is not word-filtered (by request)
+  assert.ok(prompts[0].includes(dish.name_ar));
+  assert.equal((await request(on).post("/api/ai/translate").send({ text: "" })).status, 400);
+  assert.equal((await request(on).post("/api/admin/ai/bio").send({ name_ar: "x" })).status, 401);
+});

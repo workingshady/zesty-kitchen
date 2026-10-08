@@ -342,3 +342,8 @@ html { overflow-x: clip; }
   .p3 .podium__block { height: 58px; }
 }
 .duel .stamp { --st: rotate(-12deg); top: 8px; left: 8px; }
+
+/* 🧠 Brainrot translator */
+.quest--rot .rot-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.quest--rot input { flex: 1 1 180px; min-height: 44px; padding: 0 12px; border: var(--border); border-radius: 999px; background: var(--paper); }
+.rot-out:not(:empty) { margin-top: 10px; padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--slime); font-family: var(--font-ui); font-weight: 700; box-shadow: var(--shadow-sm); }

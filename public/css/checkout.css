@@ -230,3 +230,9 @@ html { overflow-x: clip; } /* common.js rage-click body shake must not create a 
   .burst, .jar__coins { display: none; }
   .co-steps::after, .thermo__fill, .jar__fill, .hold-ring { transition: none; }
 }
+
+/* AI order judge */
+.judge { display: grid; gap: 8px; margin-top: 12px; }
+.judge .btn { justify-self: start; }
+.judge__out { margin: 0; padding: 0; font-family: var(--font-ui); font-weight: 700; }
+.judge__out:not(:empty) { padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow-sm); }

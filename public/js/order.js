@@ -1,6 +1,6 @@
 // Fake live tracker: a misbehaving ETA, a timeline that goes backwards, a courier lost in the office,
 // a chat with the courier, and finally the dish itself calls you. calm() skips straight to "delivered".
-import { $, api, esc, egp, toast, play, say, stopSpeaking, calm, pick, sleep, getDishes, fitImg, feesFor, initCommon, chefHtml } from "./common.js";
+import { $, api, esc, egp, toast, play, say, stopSpeaking, askAi, calm, pick, sleep, getDishes, fitImg, feesFor, initCommon, chefHtml } from "./common.js";
 
 const params = new URLSearchParams(location.search);
 const orderNumber = (params.get("n") || "").replace(/\D/g, "").slice(0, 8) || "6767";
@@ -715,8 +715,8 @@ async function userSays(text) {
   if (replyBusy) return;
   replyBusy = true;
   await sleep(500);
-  await courierTyping(900 + Math.random() * 1600);
-  chatMsg(esc(state.delivered ? pick(["وصلتلك خلاص يا باشا 🫡", "rate me 5 chilies pls 🥺", "bye habibi 👋"]) : pick(REPLIES)));
+  const [ai] = await Promise.all([askAi("courier", { message: text, dish_id: state.dish?.id }), courierTyping(900 + Math.random() * 1600)]);
+  chatMsg(esc(ai || (state.delivered ? pick(["وصلتلك خلاص يا باشا 🫡", "rate me 5 chilies pls 🥺", "bye habibi 👋"]) : pick(REPLIES))));
   replyBusy = false;
 }
 function initChat() {

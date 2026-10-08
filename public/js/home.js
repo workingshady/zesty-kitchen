@@ -2,7 +2,7 @@
 // coworker of the day, would-you-rather duel, hunger streak, spin wheel, and the dish-photo
 // toys (aura scan, sticker slap, roast). Everything "random" is seeded per dish per day so it
 // stays consistent between reloads.
-import { $, $$, esc, egp, toast, play, calm, pick, store, sleep, addToCart, linePrice, avatarHtml, fitImg } from "./common.js";
+import { $, $$, esc, egp, toast, play, calm, pick, store, sleep, addToCart, linePrice, avatarHtml, fitImg, askAi } from "./common.js";
 
 // ---------- shared state (set by initHome) ----------
 let C = null; // config
@@ -357,6 +357,28 @@ function renderWorst() {
 }
 
 // =====================================================================
+// 🧠 Brainrot translator (AI when available, word-swap fallback otherwise)
+const ROT_SWAPS = [[/\bvery\b|جدا/gi, "fr fr"], [/\bgood\b|كويس/gi, "W"], [/\bbad\b|وحش/gi, "L"], [/\bmeeting\b|اجتماع/gi, "the trial 💀"], [/\bwork\b|شغل/gi, "the grind"], [/\bboss\b|مدير/gi, "final boss"], [/\bhungry\b|جعان/gi, "starving no cap"], [/\bok\b|تمام/gi, "اشطا"]];
+const rotFallback = (t) => ROT_SWAPS.reduce((s, [re, to]) => s.replace(re, to), t) + " " + pick(["no cap 🧢", "fr fr 💀", "it's giving delulu 🤡", "+67 aura 🔥", "يسطا بجد 🫠"]);
+function initTranslator() {
+  const form = $("#rot-form");
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = $("#rot-input").value.trim();
+    if (!text) return toast("Type something first, NPC 🤖");
+    const out = $("#rot-out");
+    const btn = form.querySelector("button");
+    btn.disabled = true;
+    out.textContent = "🧠 Rotting your brain…";
+    play("drumroll");
+    const ai = await askAi("translate", { text });
+    out.textContent = ai || rotFallback(text);
+    btn.disabled = false;
+    play("hype");
+  });
+}
+
 // Side quests: coworker of the day + would-you-rather duel
 // =====================================================================
 const VIBES = ["locked in 🔒", "lowkey chaotic 🌪️", "on mute all day 🔇", "main character 🎬", "running on 3 coffees ☕", "fake busy 💻", "out of office (mentally) 🏝️", "aura farming 🌾"];
@@ -930,9 +952,16 @@ export function dishTools(d) {
 
   // ---------- 🎤 Roast ----------
   let roastI = hash(d.id + today()) % ROASTS.length;
-  $("#roast").addEventListener("click", () => {
+  let roastVariant = 0;
+  $("#roast").addEventListener("click", async () => {
     const name = d.name_en || d.name_ar;
-    const el = panel("roast", `<div class="roast" role="status"><span class="roast__mic" aria-hidden="true">🎤</span><p dir="auto">${esc(ROASTS[roastI++ % ROASTS.length](name))}</p><small>Workplace roast. Keep it about the job, never the person. 🫡</small><button class="btn white" type="button" data-again>🔁 Another one</button></div>`);
+    const btn = $("#roast");
+    btn.disabled = true;
+    const el = panel("roast", `<div class="roast" role="status"><span class="roast__mic" aria-hidden="true">🎤</span><p dir="auto">🤖 AI is cooking a roast…</p></div>`);
+    const ai = await askAi("roast", { dish_id: d.id, variant: roastVariant++ % 10 });
+    btn.disabled = false;
+    const text = ai || ROASTS[roastI++ % ROASTS.length](name);
+    el.innerHTML = `<div class="roast" role="status"><span class="roast__mic" aria-hidden="true">🎤</span><p dir="auto">${esc(text)}</p><small>${ai ? "🤖 AI roast · " : ""}Workplace roast. Keep it about the job, never the person. 🫡</small><button class="btn white" type="button" data-again>🔁 Another one</button></div>`;
     el.querySelector("[data-again]").addEventListener("click", () => $("#roast").click());
     play("lol");
   });
@@ -1021,6 +1050,7 @@ async function downloadPhoto(d, photo) {
 // Boot
 // =====================================================================
 export function initHome(ctx) {
+  initTranslator();
   ({ config: C, dishes: D, board: B, openDish } = ctx);
   renderHero();
   renderStreak();
