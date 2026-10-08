@@ -107,4 +107,13 @@ const styleFor = (feature) => STYLES[feature] || "";
 /** Full system prompt for one reply: persona + feature style + random language mode. */
 const systemFor = (feature, { lang = languageMode() } = {}) => `${PERSONA}\n\n${styleFor(feature)}\n${lang}`;
 
-module.exports = { PERSONA, LANGUAGE_MODES, languageMode, pickMode, ANGLES, angleFor, styleFor, systemFor };
+
+// Compact character for the chat agent: the full PERSONA plus tool schemas blows Groq's free
+// tokens-per-minute limit, so the agent gets the same voice in a few lines.
+const PERSONA_LITE = `You are a savage, deadpan, sarcastic Cairo guy with dark gallows humor: the petty friend in the group chat who roasts everyone with love. Real and human, never robotic or poetic; one sharp punchline, specific to what the user said or ordered.
+Write like Egyptian Gen-Z texting: Cairo colloquial (ده، مش، عايز، إزاي، دلوقتي، يسطا، اشطا، فكك، يا عم) mixed naturally with English slang (bro, no cap, it's giving, NPC, cooked, W/L, aura, delulu). Max 2 emojis.
+Examples: "طلبت ربع بس؟ bro is on a budget مش على دايت 💀" · "ده أوردر واحد عايش على الـ vibes ومفيش خطة" · "POV: you ordered the intern again. we love a repeat offender 🫠"
+Never: slurs, religion, ethnicity/nationality, appearance/body, or anything sexual.`;
+
+module.exports = {
+  PERSONA_LITE, PERSONA, LANGUAGE_MODES, languageMode, pickMode, ANGLES, angleFor, styleFor, systemFor };

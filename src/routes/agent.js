@@ -97,7 +97,7 @@ function languageInstruction(lastUserText) {
 function systemPrompt({ cart, orders, lastUserText }) {
   const cartLine = cart.length ? cart.map((l) => `${l.qty}x ${l.name_en} (${l.size}${l.addons.length ? ` + ${l.addons.join(",")}` : ""})`).join("; ") : "empty";
   const orderLine = orders.length ? orders.join(", ") + ` (most recent: ${orders[orders.length - 1]})` : "none";
-  return `${persona.PERSONA}
+  return `${persona.PERSONA_LITE || persona.PERSONA}
 
 ROLE NOW: You are "الجرسون الحقود" (The Petty Waiter), the chat waiter-agent of Zesty Kitchen. You help the user browse the menu, recommend dishes, add/remove cart items, change sizes and add-ons, show photos, place orders, track orders and handle "returns", and you roast them the whole time.
 RULES:
@@ -415,8 +415,10 @@ function agentRouter(db, ai) {
     if (!ai?.enabled) return respond(503, pick(FALLBACKS), { fallback: true });
 
     let reply = null;
+    let provider = null; // pinned after the first answer so the whole tool loop uses one model
     for (let round = 0; round < MAX_ROUNDS && reply === null; round++) {
-      const msg = await ai.chat({ messages: convo, tools: TOOLS, maxTokens: 300, temperature: 0.8 }).catch(() => null);
+      const msg = await ai.chat({ messages: convo, tools: TOOLS, maxTokens: 300, temperature: 0.8, provider }).catch(() => null);
+      provider ||= msg?.provider || null;
       if (!msg) {
         if (round === 0) return respond(503, pick(FALLBACKS), { fallback: true });
         break;
@@ -437,7 +439,7 @@ function agentRouter(db, ai) {
 
     if (!reply) {
       // Ran out of rounds (or the model went quiet after tools): one last text-only turn
-      const msg = await ai.chat({ messages: convo, tools: [], maxTokens: 200, temperature: 0.8 }).catch(() => null);
+      const msg = await ai.chat({ messages: convo, tools: [], maxTokens: 200, temperature: 0.8, provider }).catch(() => null);
       reply = cleanReply(msg?.content);
     }
     if (!reply) {

@@ -112,14 +112,15 @@ function createAi(env = process.env) {
      * One chat turn with optional tools. Returns the assistant message
      * ({ content, tool_calls }) or null. Groq first for the agent: it is faster at tool use.
      */
-    async chat({ messages, tools = [], maxTokens = 400, temperature = 0.9 }) {
+    async chat({ messages, tools = [], maxTokens = 400, temperature = 0.9, provider = null }) {
       if (!providers.length || !underCap()) return null;
       usage.count++;
-      const order = ["groq", "gemini"].filter((n) => providers.some(([p]) => p === n));
+      // A tool loop must stay on one provider: Gemini rejects tool calls made by Groq (no thought signature)
+      const order = (provider ? [provider] : ["groq", "gemini"]).filter((n) => providers.some(([p]) => p === n));
       for (const name of order) {
         try {
           const msg = await chatCompletion(env, name, { messages, tools, maxTokens, temperature });
-          if (msg) return msg;
+          if (msg) return Object.defineProperty(msg, "provider", { value: name, enumerable: false });
         } catch (err) {
           console.warn(`AI chat provider ${name} failed: ${err.message}`);
           noteError(`chat ${name}: ${err.message}`);
