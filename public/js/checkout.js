@@ -302,7 +302,7 @@ async function judgeOrder(btn) {
   const items = getCart().map((l) => ({ name: l.name_en || l.name_ar, size: l.size, qty: l.qty }));
   const ai = await askAi("judge", { items });
   out.textContent = ai || pick(JUDGE_FALLBACK);
-  play(/(^|s)L|-d+ aura|💀/.test(out.textContent) ? "bigfail" : "hype");
+  play(/(^|\s)L\b|-\d+ aura|💀/.test(out.textContent) ? "bigfail" : "hype");
   btn.disabled = false;
   btn.textContent = "🔮 Judge it again";
 }
