@@ -705,7 +705,7 @@ function liveOrders() {
   const tick = async () => {
     setTimeout(tick, 25_000 + Math.random() * 25_000);
     // Don't interrupt someone mid-modal (dish / wheel) or spend work on a hidden tab
-    if (calm() || document.hidden || document.querySelector("dialog[open]")) return;
+    if (calm() || document.hidden || document.querySelector("dialog[open]") || document.documentElement.classList.contains("zka-open")) return;
     const dishes = (await getDishes()).filter((d) => !d.badges.includes("sold_out"));
     if (!dishes.length) return;
     const d = pick(dishes);
