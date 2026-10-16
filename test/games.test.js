@@ -58,3 +58,19 @@ test("share links: /d/<id> has preview tags and opens the dish", async () => {
   assert.ok(r.text.includes(`/?dish=${dish.id}`));
   assert.equal((await request(app).get("/d/not-a-dish")).status, 302);
 });
+
+test("arcade: new games are on the allow-list and over-cap scores bounce", async () => {
+  const { GAMES } = require("../src/routes/games");
+  const app = createApp({ db: createMemoryStore(), env, ai: { enabled: false } });
+  const post = (body) => request(app).post("/api/games/scores").send(body);
+  for (const game of ["memory", "2048", "stack", "trivia", "typing"]) {
+    assert.ok(GAMES[game] > 0, `${game} has a cap`);
+    const ok = await post({ game, nickname: "Tester", pin: "4321", score: 42, character: "chef" });
+    assert.equal(ok.status, 200, game);
+    assert.equal(ok.body.best, 42);
+    assert.equal((await post({ game, nickname: "Tester", pin: "4321", score: GAMES[game] + 1 })).status, 400, `${game} over cap`);
+    const board = (await request(app).get(`/api/games/leaderboard?game=${game}`)).body.leaderboard;
+    assert.deepEqual(board.map((x) => x.score), [42]);
+  }
+  assert.equal((await post({ game: "dressup", nickname: "Tester", pin: "4321", score: 1 })).status, 400); // dress-up isn't scored
+});

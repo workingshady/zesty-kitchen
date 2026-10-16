@@ -1,5 +1,6 @@
-// 404 Arcade: four tiny canvas games starring your coworkers' faces.
-// Flappy-Face · Catch the Mandi · Whack-a-Coworker · Shawarma Snake
+// 404 Arcade: tiny canvas games starring your coworkers' faces.
+// Built in: Flappy-Face · Catch the Mandi · Whack-a-Coworker · Shawarma Snake
+// Lazy-loaded from /js/arcade/*.js on first pick: Dress-up · Memory · 2048 Mandi · Stack · Who said it · Typing
 import { $, esc, play, getDishes, store, calm } from "/js/common.js";
 
 // ---------- constants + helpers ----------
@@ -244,8 +245,19 @@ const ACH = {
   hr: ["🥄", "HR wants a word: 25 whacks", "الـHR عايزك"],
   selfown: ["🤡", "Self-own: whacked yourself", "ضربت نفسك يا فنان"],
   mega: ["🌯", "Mega shawarma: length 20", "شاورما سوبر لوكس"],
-  rat: ["🕹️", "Arcade rat: played all 4", "مدمن أركيد"],
+  rat: ["🕹️", "Arcade rat: played every game", "مدمن أركيد"],
   owl: ["🦉", "Should be asleep (12–5am)", "نام يا حبيبي"],
+  stylist: ["👗", "Stylist: dressed up a coworker", "ستايلست رسمي"],
+  fullfit: ["🧥", "Full fit: outfit, hat, glasses, item, place", "لوك كامل متكامل"],
+  pasha: ["🪭", "Pasha mode: galabeya + tarboosh", "الباشا وصل"],
+  selfie: ["📸", "Saved a fit pic", "صورة للذكرى"],
+  elephant: ["🧠", "Elephant brain: Memory in ≤ 12 moves", "مخ فيل"],
+  mandi: ["🍖", "Reached the Mandi tile (64)", "وصلت للمندي"],
+  feast: ["🍲", "Fatta feast: 512 tile", "عزومة فتة"],
+  tower: ["🗼", "Tray tower: 15 stacked", "برج صواني"],
+  sniper: ["🎯", "5 perfect drops in a row", "مظبوط بالملّي"],
+  gossip: ["🗣️", "Gossip expert: 5 right in a row", "خبير نميمة"],
+  fingers: ["⌨️", "Fast fingers: 10 orders typed", "صوابع صاروخ"],
 };
 function unlock(id) {
   if (unlocked.has(id) || !ACH[id]) return;
@@ -1273,8 +1285,44 @@ const snake = {
   },
 };
 
-const GAMES = [flappy, catcher, whack, snake];
+// Lazy games: tiny stubs here; the real code loads from /js/arcade/<file>.js the first time you pick one.
+const lazy = (id, icon, name, ar, blurb, help, file, extra = {}) => ({ id, icon, name, ar, blurb, help, file, quips: ["GG"], ...extra });
+const LAZY = [
+  lazy("dressup", "👗", "Dress-up the Coworker", "تلبيس الزميل", "Pick a coworker, dress them up, save the fit as a PNG. No score, only vibes.", "Tap to wear · drag to move · pinch / wheel to resize", "dressup", { unscored: true, noHud: true, noPause: true }),
+  lazy("memory", "🧠", "Face Memory", "افتكر الوش", "Flip cards, match coworker pairs. Fewer moves + faster = more points.", "Tap a card · arrows + Space / Enter", "memory"),
+  lazy("2048", "🍖", "2048 Mandi", "٢٠٤٨ مندي", "Merge عيش → فول → طعمية → كشري → محشي → مندي … up to the whole lamb.", "Swipe · arrows / WASD", "mandi2048"),
+  lazy("stack", "🗼", "Stack the Tray", "صينية التيم", "Drop sliding trays to build the tallest tower. Perfect drops grow it back.", "Tap · click · Space to drop", "stack"),
+  lazy("trivia", "🗣️", "Who Said It?", "مين قالها", "A catchphrase, a job, a vibe. Guess the coworker before the timer.", "Tap an answer · keys 1–4", "trivia"),
+  lazy("typing", "⌨️", "Type the Order", "اكتب الأوردر", "Type the orders before they get cold. 3 cold orders and you're fired.", "Type the word · Enter to serve", "typing"),
+];
+const GAMES = [flappy, catcher, whack, snake, ...LAZY];
 const byId = Object.fromEntries(GAMES.map((g) => [g.id, g]));
+const toolsEl = $("#tools");
+
+// Everything a lazy game module needs, so the modules stay small and share the same look + juice.
+const kit = {
+  W, H, ctx, canvas, INK, CREAM, MUSTARD, PINK, SLIME, SKY, KETCHUP, PAL, DISPLAY, EMOJI_FONT, FOODS, BUILTINS,
+  clamp, lerp, rand, randi, pickOne, easeOutBack, easeOutCubic,
+  rr, label, emojiSprite, drawEmoji, drawFace, faceSprite,
+  burst, popText, shake, hitstop, flash, play, unlock, finish, store, calm, esc, $,
+  toast: (icon, title, sub = "") => toast(icon, title, sub),
+  run, tools: toolsEl, randomDish,
+  get player() { return player; },
+  get coworkers() { return coworkers; },
+  allChars: () => [...BUILTINS, ...coworkers],
+  selectChar: (id) => selectChar(id, { sound: false }),
+  isPlaying: () => state === "play",
+  best: (id) => bests[id] || 0,
+};
+const loading = {};
+function ensureLoaded(g) {
+  if (!g.file || g.loaded) return Promise.resolve(g);
+  loading[g.id] ||= import(`/js/arcade/${g.file}.js`).then((m) => {
+    Object.assign(g, m.default(kit), { loaded: true });
+    return g;
+  });
+  return loading[g.id];
+}
 
 // ---------- HUD ----------
 function drawHud() {
@@ -1290,7 +1338,7 @@ function frame(now) {
   last = now;
   if (state === "play") {
     if (fx.stop > 0) fx.stop -= dt;
-    else game.update(dt);
+    else game.update?.(dt);
   } else if (state !== "paused") game.idle?.(dt);
   if (state !== "paused") updateFx(dt);
   render();
@@ -1305,14 +1353,19 @@ function render() {
     ctx.translate(rand(-s, s), rand(-s, s));
     ctx.rotate(rand(-s, s) * 0.002);
   }
-  game.draw();
+  if (game.draw) game.draw();
+  else {
+    ctx.fillStyle = CREAM;
+    ctx.fillRect(0, 0, W, H);
+    drawEmoji(game.icon, W / 2, H / 2 - 40, 90);
+  }
   drawFx();
   ctx.restore();
   if (fx.flash > 0) {
     ctx.fillStyle = `rgba(255,255,255,${fx.flash * 0.7})`;
     ctx.fillRect(0, 0, W, H);
   }
-  if (state === "play" || state === "paused") drawHud();
+  if ((state === "play" || state === "paused") && !game.noHud) drawHud();
 }
 
 // ---------- states ----------
@@ -1325,11 +1378,13 @@ function setState(s) {
   canvas.setAttribute("aria-label", `${game.name} mini game. ${s === "play" ? "Playing" : s === "paused" ? "Paused" : s === "over" ? `Game over, score ${run.score}` : "Ready"}.`);
 }
 function start() {
+  if (!game.reset) return; // lazy game still loading
   clearFx();
   game.reset();
   setState("play");
   overlay.innerHTML = "";
   canvas.focus({ preventScroll: true });
+  game.onStart?.();
   play("whoosh");
   stats.played[game.id] = true;
   saveStats();
@@ -1338,7 +1393,7 @@ function start() {
   if (hr < 5) unlock("owl");
 }
 function pause() {
-  if (state !== "play") return;
+  if (state !== "play" || game.noPause) return;
   setState("paused");
   overlay.innerHTML = `<div class="ar-card" role="dialog" aria-label="Paused">
     <div class="ar-card__icon">☕</div>
@@ -1368,8 +1423,9 @@ function showReady() {
     <p>${esc(game.blurb)}</p>
     <p class="ar-help">${esc(game.help)} · P pause · R restart</p>
     ${best ? `<p>Your best: <b>${best}</b></p>` : ""}
-    <div class="ar-row"><button class="ar-btn" data-act="start">▶ Play (Space)</button></div></div>`;
-  $("#keys").textContent = `${game.help} · P / Esc pause · R restart`;
+    <div class="ar-row"><button class="ar-btn" data-act="start">▶ ${game.unscored ? "Start styling" : "Play"} (Space)</button></div></div>`;
+  $("#keys").textContent = game.unscored ? `${game.help} · R random · Z undo · Del remove` : `${game.help} · P / Esc pause · R restart`;
+  game.ready?.();
 }
 function finish() {
   if (state !== "play") return;
@@ -1508,6 +1564,11 @@ function renderLocal(id) {
 async function renderBoard() {
   const id = game.id;
   $("#lbGame").textContent = `· ${game.name}`;
+  if (game.unscored) {
+    $("#lbSrc").textContent = "No scores here, only drip · مفيش سكور، فيه ستايل";
+    $("#lb").innerHTML = `<li class="ar-empty">Save your fit as a PNG and drop it in the group 📸</li>`;
+    return;
+  }
   if (!globalCache[id] || globalCache[id].failed) renderLocal(id); // instant paint, upgrade to global below
   const g = await fetchGlobal(id);
   if (game.id !== id) return;
@@ -1612,14 +1673,37 @@ function renderPicker() {
     (g) => `<button type="button" class="ar-game" data-game="${g.id}" aria-pressed="${g === game}">
       <span class="ar-game__icon" aria-hidden="true">${g.icon}</span>
       <span class="ar-game__name">${esc(g.name)}</span>
-      <span class="ar-game__meta"><bdi class="ar-game__ar" lang="ar" dir="rtl">${esc(g.ar)}</bdi><span class="ar-game__ar"> · </span><span>best ${bests[g.id] || 0}</span></span></button>`
+      <span class="ar-game__meta"><bdi class="ar-game__ar" lang="ar" dir="rtl">${esc(g.ar)}</bdi><span class="ar-game__ar"> · </span><span class="ar-game__best">${g.unscored ? "just vibes ✨" : `best ${bests[g.id] || 0}`}</span></span>
+      <span class="ar-game__blurb">${esc(g.blurb)}</span></button>`
   ).join("");
 }
-function selectGame(id) {
-  game = byId[id] || flappy;
+let selectToken = 0;
+async function selectGame(id) {
+  const next = byId[id] || flappy;
+  const token = ++selectToken;
+  if (game && game !== next) game.leave?.();
+  if (toolsEl) {
+    toolsEl.hidden = true;
+    toolsEl.innerHTML = "";
+  }
+  game = next;
   store.set(KEY.game, game.id);
   renderPicker();
   renderBoard();
+  if (game.file && !game.loaded) {
+    clearFx();
+    setState("ready");
+    overlay.innerHTML = `<div class="ar-card" role="status"><div class="ar-card__icon" aria-hidden="true">${game.icon}</div><h2>Loading…</h2><p class="ar-ar" lang="ar" dir="rtl">ثانية واحدة…</p></div>`;
+    try {
+      await ensureLoaded(game);
+    } catch (err) {
+      console.warn(err);
+      delete loading[next.id];
+      if (token === selectToken) overlay.innerHTML = `<div class="ar-card" role="alert"><div class="ar-card__icon">📡</div><h2>Couldn't load</h2><p>Check your connection · النت فاصل</p><div class="ar-row"><button class="ar-btn" data-act="retry">Retry</button></div></div>`;
+      return;
+    }
+    if (token !== selectToken) return;
+  }
   showReady();
 }
 function renderChars() {
@@ -1650,16 +1734,26 @@ canvas.addEventListener("pointerdown", (e) => {
   e.preventDefault();
   const p = pt(e);
   canvas.setPointerCapture?.(e.pointerId);
-  if (state === "play") game.press?.(p.x, p.y, e.pointerType);
+  if (state === "play") game.press?.(p.x, p.y, e.pointerType, e.pointerId);
 });
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    if (state !== "play" || !game.wheel) return;
+    e.preventDefault();
+    const p = pt(e);
+    game.wheel(p.x, p.y, e.deltaY);
+  },
+  { passive: false },
+);
 canvas.addEventListener("pointermove", (e) => {
   const p = pt(e);
-  if (state === "play" || game.id === "whack") game.move?.(p.x, p.y, e.pointerType);
+  if (state === "play" || game.id === "whack") game.move?.(p.x, p.y, e.pointerType, e.pointerId);
 });
 for (const ev of ["pointerup", "pointercancel"]) {
   canvas.addEventListener(ev, (e) => {
     const p = pt(e);
-    if (state === "play") game.release?.(p.x, p.y);
+    if (state === "play") game.release?.(p.x, p.y, e.pointerId);
   });
 }
 canvas.addEventListener("pointerleave", (e) => {
@@ -1672,6 +1766,7 @@ overlay.addEventListener("click", (e) => {
   if (act === "start" || act === "restart") start();
   else if (act === "resume") resume();
   else if (act === "next") selectGame(GAMES[(GAMES.indexOf(game) + 1) % GAMES.length].id);
+  else if (act === "retry") selectGame(game.id);
   else if (state === "ready" && !e.target.closest("button, input, a")) start(); // tap anywhere to begin
 });
 $("#pauseBtn").addEventListener("click", () => (state === "play" ? pause() : resume()));
@@ -1687,10 +1782,13 @@ $("#chars").addEventListener("click", (e) => {
   if (id) selectChar(id);
 });
 
-const GAME_KEYS = new Set(["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD", ...[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((n) => [`Digit${n}`, `Numpad${n}`])]);
+const GAME_KEYS = new Set(["Space", "Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD", ...[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((n) => [`Digit${n}`, `Numpad${n}`])]);
 addEventListener("keydown", (e) => {
   const tag = e.target.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  // games with their own shortcuts (dress-up: undo, randomize…) get first dibs
+  if (state === "play" && game.keydown?.(e)) return void e.preventDefault();
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.code;
   if (state === "play") {
     if (k === "KeyP" || k === "Escape") {
@@ -1720,7 +1818,7 @@ addEventListener("keydown", (e) => {
   }
 });
 addEventListener("keyup", (e) => {
-  if (state === "play") game.key?.(e.code, false);
+  if (state === "play" && !e.target.closest?.("input, textarea")) game.key?.(e.code, false);
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) pause();
@@ -1730,13 +1828,11 @@ addEventListener("blur", () => pause());
 
 // ---------- boot ----------
 if (calm()) $("#arcade").classList.add("ar-calm");
-game = byId[store.get(KEY.game, "flappy")] || flappy;
-renderPicker();
-renderBoard();
+game = flappy;
 renderAch();
 renderChars();
 renderMe();
-showReady();
+selectGame(store.get(KEY.game, "flappy"));
 requestAnimationFrame((t) => {
   last = t;
   frame(t);
@@ -1752,11 +1848,13 @@ getDishes()
       bg: PAL[i % PAL.length],
       photo: d.photo_url || null,
       sprite: null,
+      dish: d,
     }));
     coworkers.forEach(loadSprite);
     const saved = store.get(KEY.char, "chef");
     player = [...BUILTINS, ...coworkers].find((c) => c.id === saved) || BUILTINS[0];
     renderChars();
+    game.charsChanged?.();
   })
   .catch(() => {});
 const savedBuiltin = BUILTINS.find((c) => c.id === store.get(KEY.char, "chef"));

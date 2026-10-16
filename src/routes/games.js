@@ -7,7 +7,17 @@ const { cleanText } = require("../filter");
 const v = require("../validate");
 
 // Sanity caps so a hand-crafted request can't post a billion points
-const GAMES = { flappy: 2000, catch: 100000, whack: 5000, snake: 2000 };
+const GAMES = {
+  flappy: 2000,
+  catch: 100000,
+  whack: 5000,
+  snake: 2000,
+  memory: 2000, // 8 pairs × 100 + up to 600 bonus
+  2048: 1000000, // sum of merges; a 65536 tile run is ~900k
+  stack: 2000, // +1 per tray, +2 per perfect
+  trivia: 10000, // 10 questions × (100 + 100) × up to x3
+  typing: 50000, // endless rush; ~200 orders at the top
+};
 
 const hashPin = (pin, salt = crypto.randomBytes(16).toString("hex")) =>
   `${salt}:${crypto.scryptSync(pin, salt, 32).toString("hex")}`;

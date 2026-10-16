@@ -6,7 +6,7 @@
 .ar-sub span { display: block; font-family: var(--font-body); font-weight: 700; color: var(--muted); }
 
 /* ---------- game picker ---------- */
-.ar-picker { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 16px; }
+.ar-picker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 0 0 16px; }
 .ar-game {
   display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 10px; text-align: start;
   padding: 10px 12px; border: var(--border); border-radius: var(--radius); background: var(--paper);
@@ -18,10 +18,12 @@
 .ar-game:focus-visible, .ar-char:focus-visible, .ar-btn:focus-visible, .ar-pause:focus-visible, .ar-canvas:focus-visible { outline: 3px dashed var(--ketchup); outline-offset: 3px; }
 .ar-game[aria-pressed="true"] { background: var(--mustard); box-shadow: 5px 5px 0 var(--ink); }
 .ar-game__icon { grid-row: span 2; font-size: 30px; line-height: 1; width: 46px; height: 46px; display: grid; place-items: center; border: var(--border); border-radius: 12px; background: var(--cream); }
-.ar-game:nth-child(1) .ar-game__icon { background: var(--sky); }
-.ar-game:nth-child(2) .ar-game__icon { background: var(--pink); }
-.ar-game:nth-child(3) .ar-game__icon { background: var(--slime); }
-.ar-game:nth-child(4) .ar-game__icon { background: #ffb36b; }
+.ar-game:nth-child(5n+1) .ar-game__icon { background: var(--sky); }
+.ar-game:nth-child(5n+2) .ar-game__icon { background: var(--pink); }
+.ar-game:nth-child(5n+3) .ar-game__icon { background: var(--slime); }
+.ar-game:nth-child(5n+4) .ar-game__icon { background: #ffb36b; }
+.ar-game:nth-child(5n) .ar-game__icon { background: #c9a7ff; }
+.ar-game__blurb { grid-column: 1 / -1; font-size: 12px; line-height: 1.25; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 2px; }
 .ar-game__name { font-family: var(--font-display); font-size: 19px; line-height: 1.1; overflow-wrap: anywhere; }
 .ar-game__meta { font-size: 13px; font-weight: 700; color: var(--muted); line-height: 1.2; overflow-wrap: anywhere; }
 
@@ -146,6 +148,42 @@
 
 .ar-back { text-align: center; margin-top: 22px; }
 
+/* ---------- per-game tools under the canvas (dress-up wardrobe, typing input) ---------- */
+.ar-tools { width: min(100%, 470px); margin: 12px auto 0; min-width: 0; }
+.ar-tools[hidden] { display: none; }
+.ar-frame[data-game="dressup"] .ar-pause { display: none; }
+.ar-frame[data-game="dressup"] .ar-canvas { cursor: grab; }
+.ar-frame[data-game="dressup"] .ar-canvas:active { cursor: grabbing; }
+.du { background: var(--paper); border: var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 10px; display: grid; gap: 10px; min-width: 0; }
+.du-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; overscroll-behavior-x: contain; }
+.du-tab {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 40px; padding: 4px 10px; border: 2px solid var(--ink); border-radius: 999px;
+  background: var(--cream); font: 800 13px/1.1 var(--font-ui); color: var(--ink); cursor: pointer; white-space: nowrap;
+}
+.du-tab small { font-family: var(--font-body); font-weight: 700; color: var(--muted); margin-inline-start: 2px; }
+.du-tab[aria-selected="true"] { background: var(--mustard); box-shadow: 2px 2px 0 var(--ink); }
+.du-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 8px; max-height: 200px; overflow-y: auto; padding: 4px 4px 6px 2px; }
+.du-item {
+  aspect-ratio: 1; min-height: 52px; padding: 0; border: 2px solid var(--ink); border-radius: 12px; background: var(--cream); cursor: pointer;
+  display: grid; place-items: center; font-size: 28px; line-height: 1; overflow: hidden; box-shadow: 2px 2px 0 var(--ink); transition: transform .08s;
+}
+.du-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.du-item:hover { transform: translateY(-2px); }
+.du-item[aria-pressed="true"] { background: var(--mustard); outline: 3px solid var(--ketchup); outline-offset: 1px; }
+.du-who { border-radius: 50%; }
+.du-item--text { grid-column: span 2; aspect-ratio: auto; padding: 6px 8px; font: 700 13px/1.25 var(--font-body); text-align: center; }
+.du-bubble { overflow-wrap: anywhere; }
+.du-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.du-actions .ar-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: var(--shadow-sm); }
+.du-rating { margin: 0; text-align: center; font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+.du-tab:focus-visible, .du-item:focus-visible, .ty-input:focus-visible { outline: 3px dashed var(--ketchup); outline-offset: 2px; }
+.ty-wrap { display: grid; gap: 4px; }
+.ty-label { font-weight: 800; font-size: 13px; }
+.ty-input {
+  width: 100%; min-width: 0; min-height: 48px; padding: 6px 12px; font: 800 20px ui-monospace, Menlo, Consolas, monospace;
+  border: var(--border); border-radius: 12px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-sm);
+}
+
 @keyframes ar-pop { from { transform: scale(.85) rotate(-2deg); opacity: 0; } }
 @keyframes ar-slide { from { transform: translateY(-14px); opacity: 0; } }
 @keyframes ar-fade { to { transform: translateY(-8px); opacity: 0; } }
@@ -153,14 +191,21 @@
 .ar-calm .ar-card, .ar-calm .ar-toast { animation: none; }
 @media (prefers-reduced-motion: reduce) {
   .ar-card, .ar-toast, .ar-toast.out { animation: none; }
-  .ar-game, .ar-char { transition: none; }
+  .ar-game, .ar-char, .du-item { transition: none; }
 }
 
 /* ---------- responsive ---------- */
+@media (max-width: 1060px) {
+  .ar-picker { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 @media (max-width: 900px) {
   .ar-grid { grid-template-columns: minmax(0, 1fr); }
   .ar-side { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .ar-picker { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
   .ar-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ar-game__blurb { display: none; }
 }
 @media (max-width: 520px) {
   .ar-picker { gap: 8px; }
@@ -178,3 +223,4 @@
   .ar-big { font-size: 38px; }
   .ar-card h2 { font-size: 22px; }
 }
+.ar-game__best { white-space: nowrap; }
