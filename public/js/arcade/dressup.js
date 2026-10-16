@@ -978,7 +978,7 @@ export default function dressup(k) {
       return all
         .map(
           (c) => `<button type="button" class="du-item du-who" data-who="${esc(c.id)}" aria-pressed="${c.id === k.player?.id}" title="${esc(c.label)}" aria-label="Model: ${esc(c.label)}" style="background:${c.bg || CREAM}">
-          ${c.photo ? `<img src="${esc(c.photo)}" alt="" loading="lazy">` : `<span aria-hidden="true">${c.emoji}</span>`}</button>`,
+          ${c.photo ? `<img src="${esc(c.photo)}" alt="" loading="lazy" crossorigin="anonymous">` : `<span aria-hidden="true">${c.emoji}</span>`}</button>`,
         )
         .join("");
     }

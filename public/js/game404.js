@@ -211,6 +211,7 @@ let player = BUILTINS[0];
 function loadSprite(who) {
   if (!who.photo) return;
   const img = new Image();
+  img.crossOrigin = "anonymous"; // keeps canvases exportable (dress-up PNG) with Supabase photos
   img.decoding = "async";
   img.onload = () => {
     try {
@@ -1711,7 +1712,7 @@ function renderChars() {
   $("#chars").innerHTML = all
     .map(
       (c) => `<button type="button" class="ar-char" data-char="${esc(c.id)}" aria-pressed="${c.id === player.id}" aria-label="Play as ${esc(c.label)}" title="${esc(c.label)}" style="background:${c.bg || CREAM}">
-      ${c.photo ? `<img src="${esc(c.photo)}" alt="" loading="lazy">` : `<span aria-hidden="true">${c.emoji}</span>`}</button>`
+      ${c.photo ? `<img src="${esc(c.photo)}" alt="" loading="lazy" crossorigin="anonymous">` : `<span aria-hidden="true">${c.emoji}</span>`}</button>`
     )
     .join("");
   $("#playing").innerHTML = `Playing as <b>${esc(player.label)}</b>${player.ar ? ` · <span lang="ar" dir="rtl">${esc(player.ar)}</span>` : ""}`;
